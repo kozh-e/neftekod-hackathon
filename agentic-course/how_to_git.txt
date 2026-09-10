@@ -1,0 +1,14 @@
+writing code
+1. git status (changes)
+2. git add . (add all changes to git)
+3. git commit -m "your message"
+
+sharing code
+git push (push your changes to github)
+git fetch (view changes on github)
+git pull (git fetch + merge; download all changes from github)
+
+branches
+git branch (all brances)
+git checkout -b "feature/new-agent" (new branch)
+git checkout develop (change branch to "develop")
