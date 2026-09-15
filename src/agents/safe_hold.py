@@ -29,7 +29,8 @@ def node_safe_hold(state: MasGraphState) -> Dict[str, Any]:
     final_rec = FinalRecommendation(
         status="SAFE_HOLD",
         explanation=REFUSAL_VERBATIM_TEXT,
-        recommended_delta_u={}
+        recommended_delta_u={},
+        markdown_report=f"### 🚨 Режим БЕЗОПАСНОГО УДЕРЖАНИЯ (Safe Hold)\n\n{REFUSAL_VERBATIM_TEXT}"
     )
     
     return {"final_recommendation": final_rec}

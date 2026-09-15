@@ -7,8 +7,23 @@
 from __future__ import annotations
 
 import operator
+import datetime
 from typing import TypedDict, Annotated, List, Dict, Any, Optional
 from pydantic import BaseModel, Field, ConfigDict
+
+
+class BaseAgentProtocol(BaseModel):
+    """Базовый контракт для всех типизированных протоколов в МАС."""
+    model_config = ConfigDict(frozen=True, extra="forbid")
+    timestamp: datetime.datetime = Field(default_factory=lambda: datetime.datetime.now(datetime.timezone.utc))
+
+
+class SafetyAuditReport(BaseAgentProtocol):
+    """Отчет аудита Агента Надежности / Качества по кандидату."""
+    candidate_id: str
+    is_vetoed: bool = False
+    risk_penalty_rub_h: float = Field(default=0.0, ge=0.0)
+    violation_reason: Optional[str] = None
 
 
 class RawTelemetry(BaseModel):
@@ -42,9 +57,23 @@ class DataQuality(BaseModel):
 class ControlCandidate(BaseModel):
     """Предложение по вариации уставок технологического режима."""
     
+    model_config = ConfigDict(extra="allow")
+
     candidate_id: str
     delta_u: Dict[str, float] = Field(default_factory=dict, description="Вектор изменения уставок")
     expected_margin: float = Field(default=0.0, description="Ожидаемый экономический эффект, руб/ч")
+    
+    # Метрики оборудования (Уровень 1 ПАЗ)
+    expected_t55: Optional[float] = Field(default=None, description="Перевал печи П-3 (COT), °C")
+    expected_w10: Optional[float] = Field(default=None, description="Перепад реактора Р-202, кгс/см²")
+    expected_p52: Optional[float] = Field(default=None, description="Перепад насадки К-10, кгс/см²")
+    expected_f31: Optional[float] = Field(default=None, description="Расход сырья печи П-3, м³/ч")
+    
+    # Метрики качества гидрогенизата (Уровень 2 ГОСТ)
+    expected_sulfur: Optional[float] = Field(default=None, description="Сера гидрогенизата, ppm")
+    expected_density: Optional[float] = Field(default=None, description="Плотность при 15°C, кг/м³")
+    expected_cfpp: Optional[float] = Field(default=None, description="ПТФ базового дизеля, °C")
+    expected_flash: Optional[float] = Field(default=None, description="Температура вспышки дизеля, °C")
 
 
 class FinalRecommendation(BaseModel):
@@ -53,6 +82,7 @@ class FinalRecommendation(BaseModel):
     status: str = Field(description="Статус: NORMAL, SAFE_HOLD, BLEND_OPTIMIZED и т.д.")
     explanation: str = Field(description="Пояснение причин решения (XAI)")
     recommended_delta_u: Dict[str, float] = Field(default_factory=dict, description="Вектор допустимых коррекций уставок")
+    markdown_report: Optional[str] = Field(default=None, description="Полный диспетчерский XAI-отчет")
 
 
 def merge_risk_penalties(left: Dict[str, float], right: Dict[str, float]) -> Dict[str, float]:
@@ -95,5 +125,11 @@ class MasGraphState(TypedDict, total=False):
     # Барьерные штрафы (ID кандидата -> Штраф руб/ч)
     risk_penalties: Annotated[Dict[str, float], merge_risk_penalties]
     
+    # Отобранный арбитражем кандидат
+    selected_candidate: Optional[ControlCandidate]
+    
     # Итоговый вердикт системы
     final_recommendation: Optional[FinalRecommendation]
+    
+    # Оптимальная рецептура блендинга
+    blending_recipe: Optional[Any]
