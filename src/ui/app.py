@@ -10,6 +10,15 @@
 
 from __future__ import annotations
 
+import os
+import sys
+from pathlib import Path
+
+# Обеспечиваем доступность корневого пакета src при запуске через `streamlit run src/ui/app.py`
+ROOT_DIR = Path(__file__).resolve().parent.parent.parent
+if str(ROOT_DIR) not in sys.path:
+    sys.path.insert(0, str(ROOT_DIR))
+
 import time
 import datetime
 import streamlit as st
@@ -52,7 +61,7 @@ density = st.sidebar.number_input("Плотность сырья D10 (кг/м³)
 sulfur_pak = st.sidebar.number_input("Сера поточная ПАК (ppm)", value=8.2, step=0.1, min_value=0.0)
 lims_age = st.sidebar.slider("Возраст анализов LIMS (часы)", min_value=0.0, max_value=30.0, value=2.5, step=0.5)
 
-run_opt_btn = st.sidebar.button("🚀 Запустить цикл оптимизации", use_container_width=True, type="primary")
+run_opt_btn = st.sidebar.button("🚀 Запустить цикл оптимизации", width="stretch", type="primary")
 
 # -----------------------------------------------------------------------------
 # Главный заголовок и KPI метрики
@@ -148,9 +157,12 @@ elif final_rec.status == "SUCCESS":
 
         if blending_recipe is not None and getattr(blending_recipe, "success", False):
             with st.expander("🧪 Оптимальная рецептура блендинга (HiGHS LP)"):
-                st.write(f"• Доля базового дизеля: **{blending_recipe.fractions.get('diesel', 0.0):.1%}**")
-                st.write(f"• Доля керосина КО: **{blending_recipe.fractions.get('kerosene', 0.0):.1%}**")
-                st.write(f"• Дозировка ДДП присадки: **{blending_recipe.fractions.get('ddp_ppm', 0.0):.0f} ppm**")
+                v_d = getattr(blending_recipe, "v_diesel", 0.0)
+                v_k = getattr(blending_recipe, "v_kerosene", 0.0)
+                v_ddp = getattr(blending_recipe, "v_ddp_ppm", 0.0)
+                st.write(f"• Доля базового дизеля: **{v_d:.1%}**")
+                st.write(f"• Доля керосина КО: **{v_k:.1%}**")
+                st.write(f"• Дозировка ДДП присадки: **{v_ddp:.0f} ppm**")
                 st.write(f"• Расчетная температура вспышки: **{blending_recipe.expected_flash:.1f} °C**")
                 st.write(f"• Расчетная ПТФ (CFPP): **{blending_recipe.expected_cfpp:.1f} °C**")
 
@@ -174,7 +186,7 @@ elif final_rec.status == "SUCCESS":
 
         st.write("---")
 
-        if st.button("🟢 ОДОБРИТЬ (Отправить на ПЛК)", use_container_width=True, type="primary"):
+        if st.button("🟢 ОДОБРИТЬ (Отправить на ПЛК)", width="stretch", type="primary"):
             st.session_state.system_status = "APPLYING"
             with st.spinner("Безударная передача уставок в контроллеры DCS/APC..."):
                 time.sleep(1)
@@ -182,5 +194,5 @@ elif final_rec.status == "SUCCESS":
             st.success(f"Уставки успешно переданы на нижний уровень в {st.session_state.last_applied_time}!")
             st.balloons()
 
-        if st.button("🔴 ОТКЛОНИТЬ (Остаться на базе)", use_container_width=True):
+        if st.button("🔴 ОТКЛОНИТЬ (Остаться на базе)", width="stretch"):
             st.warning("Рекомендация ИИ отклонена диспетчером. Технологический режим не изменен.")

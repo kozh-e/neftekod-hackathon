@@ -55,6 +55,15 @@ class BlendingResult(BaseModel):
     fbi_blend: float = Field(default=0.0, description="Индекс вспышки смеси Вики-Читтендена")
     error_message: Optional[str] = Field(default=None, description="Пояснение при невозможности оптимизации")
 
+    @property
+    def fractions(self) -> Dict[str, float]:
+        """Словарь долей компонентов для обратной совместимости."""
+        return {
+            "diesel": self.v_diesel,
+            "kerosene": self.v_kerosene,
+            "ddp_ppm": self.v_ddp_ppm,
+        }
+
 
 class OptimizerBlending:
     """

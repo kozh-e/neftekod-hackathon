@@ -131,3 +131,14 @@ def test_fastapi_optimize_endpoint_safe_hold_on_bad_data():
     assert data["status"] == "SAFE_HOLD"
     assert "Надёжной рекомендации нет" in data["explanation"]
     assert data["recommended_delta_u"] == {}
+
+
+def test_streamlit_app_renders():
+    """Тест 6: Streamlit приложение компилируется и исполняется без ошибок и исключений."""
+    from pathlib import Path
+    from streamlit.testing.v1 import AppTest
+
+    ui_path = Path(__file__).resolve().parent.parent / "src" / "ui" / "app.py"
+    at = AppTest.from_file(str(ui_path))
+    at.run()
+    assert not at.exception, f"Streamlit app raised an exception: {at.exception}"
