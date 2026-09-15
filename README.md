@@ -12,9 +12,10 @@
 │   ├── xai/            # explainable AI
 │   └── ui/             # пользовательский интерфейс
 └── tests/              # тесты
-```
+
 
 Запуск приложения: .venv/bin/uvicorn main:app --host 0.0.0.0 --port 8000 --reload
 Запуск веб-интерфейса приложения: .venv/bin/streamlit run src/ui/app.py
 
 TODO:
+```
