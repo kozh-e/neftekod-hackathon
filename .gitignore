@@ -7,3 +7,4 @@ avt_tags.csv
 __pycache__/
 *.py[cod]
 .pytest_cache/
+.claude/
