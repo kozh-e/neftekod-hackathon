@@ -75,4 +75,14 @@
 - В [`src/twin/fopdt.py`](file:///Users/egork/Desktop/neftekod-hackathon/src/twin/fopdt.py): Расширенный фильтр Калмана (EKF) и оцениватель на скользящем горизонте (MHE) с динамической матрицей ковариаций $R(t)$.
 - В [`src/xai/narrative.py`](file:///Users/egork/Desktop/neftekod-hackathon/src/xai/narrative.py): Интеграция LLM-ассистента через vLLM с RAG по технологическим регламентам ЭЛОУ-АВТ-6 и 24-2000.
 
+### 7. Контейнеризация и запуск в Docker (One-Click Launch)
+- Оптимизированный [`Dockerfile`](file:///Users/egork/Desktop/neftekod-hackathon/Dockerfile) на базе стабильного `python:3.12-slim` с предустановкой системных утилит (`curl`, `build-essential`) и кэшированием pip-слоя.
+- Мультиконтейнерная оркестрация [`docker-compose.yml`](file:///Users/egork/Desktop/neftekod-hackathon/docker-compose.yml):
+  - Сервис `api` (FastAPI REST API на порту 8000) с автоматическим healthcheck (`/api/v1/health`);
+  - Сервис `streamlit` (Консоль оператора на порту 8501) со строгим ожиданием готовности бэкенда (`service_healthy`);
+  - Сервис `tests` (профиль `test` для прогона тестов в контейнере `docker compose run --rm tests`);
+  - Поддержка hot-reload (bind mount `.:/app`) для динамической разработки.
+- Оптимизация сборки: [`.dockerignore`](file:///Users/egork/Desktop/neftekod-hackathon/.dockerignore) исключает лишние данные и виртуальные окружения.
+- Скрипт быстрого запуска [`start.sh`](file:///Users/egork/Desktop/neftekod-hackathon/start.sh) с выводом интерактивных ссылок на консоль и документацию Swagger.
+
 # Результаты тестирования - все работает.
