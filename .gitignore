@@ -3,3 +3,7 @@
 /.obsidian
 242000_tags.csv
 avt_tags.csv
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
