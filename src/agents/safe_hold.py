@@ -25,7 +25,15 @@ def node_safe_hold(state: MasGraphState) -> Dict[str, Any]:
     
     Переводит систему в режим безизменений: Delta u = {} (уставки фиксируются),
     предотвращая интегральное насыщение и разнос технологического режима.
+    Если рекомендация уже сформирована арбитражем (напр. SAFE_HOLD_EMPTY_ADMISSIBLE),
+    она сохраняется вместе с перечнем нарушенных пределов.
     """
+    existing_rec = state.get("final_recommendation")
+    if existing_rec is not None and existing_rec.status.startswith("SAFE_HOLD"):
+        if not getattr(existing_rec, "markdown_report", None):
+            existing_rec.markdown_report = f"### 🚨 Режим БЕЗОПАСНОГО УДЕРЖАНИЯ (Safe Hold)\n\n{existing_rec.explanation}"
+        return {"final_recommendation": existing_rec}
+
     final_rec = FinalRecommendation(
         status="SAFE_HOLD",
         explanation=REFUSAL_VERBATIM_TEXT,

@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import operator
 import datetime
-from typing import TypedDict, Annotated, List, Dict, Any, Optional
+from typing import TypedDict, Annotated, List, Dict, Any, Optional, Literal
 from pydantic import BaseModel, Field, ConfigDict
 
 
@@ -24,6 +24,9 @@ class SafetyAuditReport(BaseAgentProtocol):
     is_vetoed: bool = False
     risk_penalty_rub_h: float = Field(default=0.0, ge=0.0)
     violation_reason: Optional[str] = None
+    agent: Literal["reliability", "quality", "unknown"] = "unknown"
+    violated_limits: List[str] = Field(default_factory=list)
+    limit_margins: Dict[str, float] = Field(default_factory=dict)
 
 
 class RawTelemetry(BaseModel):
@@ -34,10 +37,10 @@ class RawTelemetry(BaseModel):
     timestamp: str = Field(description="Метка времени измерения (ISO 8601 или промышленный архив)")
     P52: float = Field(description="Перепад давления вакуумной колонны К-10, кгс/см2")
     D10: float = Field(description="Плотность сырья, кг/м3")
-    F15: float = Field(default=0.0, description="Расход водородного квенча, нм3/ч")
+    F15: float = Field(default=0.0, description="Объёмный расход сырья 24-2000, м³/ч (официальный реестр; legacy-демо: квенч)")
     T55: float = Field(default=0.0, description="Температура перевала печи П-3 (COT), °C")
     F5: float = Field(default=0.0, description="Расход пара в куб колонны К-1, т/ч")
-    F26: float = Field(default=0.0, description="Расход пара в стриппинг К-6 / дизельное сырье, т/ч")
+    F26: float = Field(default=0.0, description="Устаревшее имя; для 24-2000 — расход ГО ДТ, м³/ч; для АВТ — пар в К-6, т/ч")
     lims_age_hours: float = Field(default=0.0, description="Возраст последнего лабораторного анализа LIMS в часах")
 
 
@@ -63,9 +66,20 @@ class ControlCandidate(BaseModel):
     delta_u: Dict[str, float] = Field(default_factory=dict, description="Вектор изменения уставок")
     expected_margin: float = Field(default=0.0, description="Ожидаемый экономический эффект, руб/ч")
     
+    # Флаги и траектории цифрового двойника
+    is_hold: bool = False
+    horizon_steps: int = 0
+    trajectory: Dict[str, List[float]] = Field(default_factory=dict)
+    steady_state: Dict[str, float] = Field(default_factory=dict)
+    margin_breakdown: Dict[str, float] = Field(default_factory=dict)
+
     # Метрики оборудования (Уровень 1 ПАЗ)
     expected_t55: Optional[float] = Field(default=None, description="Перевал печи П-3 (COT), °C")
-    expected_w10: Optional[float] = Field(default=None, description="Перепад реактора Р-202, кгс/см²")
+    expected_w10: Optional[float] = Field(default=None, description="Перепад реактора Р-202, кгс/см² (deprecated)")
+    expected_dp_kpa: Optional[float] = Field(default=None, description="Перепад давления реактора Р-202, кПа")
+    expected_t_out: Optional[float] = Field(default=None, description="Температура выхода Р-202 (HT_T11), °C")
+    expected_gor: Optional[float] = Field(default=None, description="Кратность ВСГ/сырье, нм3/м3")
+    expected_feed_to_avt: Optional[float] = Field(default=None, description="Отношение расхода сырья ГО к дизелю АВТ")
     expected_p52: Optional[float] = Field(default=None, description="Перепад насадки К-10, кгс/см²")
     expected_f31: Optional[float] = Field(default=None, description="Расход сырья печи П-3, м³/ч")
     
@@ -74,6 +88,8 @@ class ControlCandidate(BaseModel):
     expected_density: Optional[float] = Field(default=None, description="Плотность при 15°C, кг/м³")
     expected_cfpp: Optional[float] = Field(default=None, description="ПТФ базового дизеля, °C")
     expected_flash: Optional[float] = Field(default=None, description="Температура вспышки дизеля, °C")
+    expected_t95: Optional[float] = Field(default=None, description="Температура перегонки 95% (T95), °C")
+    expected_cetane: Optional[float] = Field(default=None, description="Цетановое число (ЦЧ)")
 
 
 class FinalRecommendation(BaseModel):
@@ -113,6 +129,16 @@ class MasGraphState(TypedDict, total=False):
     предотвращает возникновение InvalidUpdateError при параллельном
     выполнении аудиторов надежности и качества (Fan-Out / Fan-In).
     """
+    tags: Dict[str, float]
+    session_id: Optional[str]
+    twin_params: Optional[Any]
+    economics: Optional[Dict[str, float]]
+    hold_prediction: Dict[str, List[float]]
+    audit_reports: Annotated[List[SafetyAuditReport], operator.add]
+    twin_warnings: Annotated[List[str], operator.add]
+    alternatives: List[Dict[str, Any]]
+    confidence: Dict[str, Any]
+
     raw_telemetry: RawTelemetry
     data_quality: DataQuality
     

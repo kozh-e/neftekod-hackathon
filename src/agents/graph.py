@@ -22,7 +22,7 @@ from langgraph.graph.state import CompiledStateGraph
 from src.agents.state import MasGraphState
 from src.agents.data_guard import node_data_quality_guard
 from src.agents.safe_hold import node_safe_hold
-from src.agents.optimization_stub import node_optimization_stub
+from src.agents.optimization import node_optimization
 from src.agents.auditors import node_reliability_agent, node_quality_agent
 from src.agents.arbitration import node_arbitration
 from src.agents.blending import node_blending_agent
@@ -41,7 +41,7 @@ def route_after_arbitration(state: MasGraphState) -> Literal["safe_hold", "blend
     final_rec = state.get("final_recommendation")
     if final_rec is None or final_rec.status.startswith("SAFE_HOLD"):
         return "safe_hold"
-    if final_rec.status == "SUCCESS" and state.get("selected_candidate") is not None:
+    if final_rec.status.startswith("SUCCESS") and state.get("selected_candidate") is not None:
         return "blending"
     return "end"
 
@@ -55,7 +55,7 @@ def build_mvp_graph() -> CompiledStateGraph:
     # Регистрация всех узлов
     builder.add_node("data_guard", node_data_quality_guard)
     builder.add_node("safe_hold", node_safe_hold)
-    builder.add_node("optimization", node_optimization_stub)
+    builder.add_node("optimization", node_optimization)
     builder.add_node("reliability_agent", node_reliability_agent)
     builder.add_node("quality_agent", node_quality_agent)
     builder.add_node("arbitration", node_arbitration)
