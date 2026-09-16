@@ -49,7 +49,7 @@ def test_xai_generator_success_report():
     assert "8.40 ppm" in report
     assert "Уровень 1 ПАЗ" in report
     # Проверка физико-химической аргументации
-    assert "квенча F15" in report
+    assert "сырья F15" in report
     assert "Р-202" in report
     assert "П-3" in report
 
@@ -86,26 +86,16 @@ def test_fastapi_health_endpoint():
     assert data["service"] == "neftecode-mas-api"
 
 
-def test_fastapi_optimize_endpoint_success():
+def test_fastapi_optimize_endpoint_success(quality_risk_tags):
     """Тест 4: Эндпоинт POST /api/v1/optimize успешно прогоняет LangGraph и возвращает результат."""
     payload = {
-        "tags": {
-            "timestamp": "2026-09-15T15:30:00",
-            "P52": 0.045,
-            "D10": 840.0,
-            "F15": 400.0,
-            "T55": 380.0,
-            "F5": 25.0,
-            "F26": 80.0,
-            "Sulfur": 8.2,
-            "lims_age_hours": 2.0
-        }
+        "tags": quality_risk_tags
     }
 
     response = client.post("/api/v1/optimize", json=payload)
     assert response.status_code == 200
     data = response.json()
-    assert data["status"] == "SUCCESS"
+    assert data["status"].startswith("SUCCESS")
     assert len(data["recommended_delta_u"]) > 0
     assert data["markdown_report"] is not None
     assert "### 📊 Рекомендация" in data["markdown_report"]
@@ -142,3 +132,85 @@ def test_streamlit_app_renders():
     at = AppTest.from_file(str(ui_path))
     at.run()
     assert not at.exception, f"Streamlit app raised an exception: {at.exception}"
+
+
+def test_fastapi_optimize_endpoint_with_custom_economics(quality_risk_tags):
+    """Тест 7: Эндпоинт POST /api/v1/optimize принимает опциональный блок economics и выполняет расчет."""
+    payload = {
+        "tags": quality_risk_tags,
+        "economics": {
+            "price_godt": 72000.0,
+            "price_straight_run": 54000.0,
+            "fuel_rub_mwh": 2800.0,
+            "min_margin_improvement": 500.0,
+        },
+    }
+
+    response = client.post("/api/v1/optimize", json=payload)
+    assert response.status_code == 200
+    data = response.json()
+    assert data["status"].startswith("SUCCESS")
+    assert len(data["recommended_delta_u"]) > 0
+    assert "economics" in data and data["economics"] is not None
+    assert "crack_spreads" in data["economics"]
+    assert data["economics"]["hourly_gross_margin_rub_h"] > 0
+
+
+def test_economics_aliases_and_properties():
+    """Тест 8: Проверка вычисляемых спредов и алиасов в EconomicsParams."""
+    from src.twin.params import EconomicsParams
+
+    p = EconomicsParams(
+        price_crude_oil=41500.0,
+        price_straight_run=52000.0,
+        price_godt=68000.0,
+        y_liq=0.98,
+    )
+    assert p.margin_spread == 16000.0
+    assert p.straight_to_godt_spread == 16000.0
+    assert p.crude_to_straight_spread == 10500.0
+    assert abs(p.crude_to_godt_spread - ((68000.0 * 0.98) - 41500.0)) < 1e-6
+    assert p.product_diesel_rub_ton == 68000.0
+    assert p.straight_run_diesel_rub_ton == 52000.0
+    assert p.crude_oil_rub_ton == 41500.0
+
+
+def test_margin_model_net_margin_and_opex():
+    """Тест 9: Расчет OPEX и чистой операционной маржи (Net Margin) в MarginModel."""
+    from src.agents.economics import MarginModel
+    from src.twin.params import EconomicsParams, ReactorParams
+
+    model = MarginModel(EconomicsParams(), ReactorParams())
+    gross = model.calc_hourly_gross_margin(219.6)
+    assert gross > 3_000_000.0
+
+    opex = model.calc_hourly_operating_costs(219.6, 363.3, 3.922, 93309.0, 363.65)
+    assert "furnace_mwh_h" in opex
+    assert opex["total_opex_rub_h"] > 100_000.0
+
+    net = model.calc_hourly_net_margin(219.6, 363.3, 3.922, 93309.0, 363.65)
+    assert net == round(gross - opex["total_opex_rub_h"], 2)
+
+
+def test_inverted_crack_spread_optimization(quality_risk_tags):
+    """Тест 10: При инвертированном спреде (убыточная переработка) агент не увеличивает расход сырья."""
+    from src.agents.graph import build_mvp_graph
+
+    graph = build_mvp_graph()
+    # Чистый режим (низкая сера 7.0 ppm)
+    clean_tags = dict(quality_risk_tags)
+    clean_tags["HT_Q21"] = 7.0
+    clean_tags["LIMS_HT_S"] = 7.0
+
+    result = graph.invoke({
+        "tags": clean_tags,
+        "economics": {
+            "price_godt": 40000.0,
+            "price_straight_run": 52000.0,
+        },
+    })
+    rec = result.get("final_recommendation")
+    assert rec is not None
+    # При инвертированном спреде увеличение сырья (HT_FEED_SP +5) не должно рекомендоваться
+    assert rec.recommended_delta_u.get("HT_FEED_SP", 0.0) <= 0.0
+

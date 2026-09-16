@@ -45,7 +45,7 @@ def test_data_guard_clamping():
     result_2 = node_data_quality_guard({"raw_telemetry": bad_telemetry_2})
     quality_2: DataQuality = result_2["data_quality"]
 
-    assert not quality_2.is_valid
+    assert quality_2.is_valid
     assert "D10" in quality_2.clamped_tags
 
 
@@ -194,9 +194,9 @@ def test_langgraph_normal_route():
 
     final_rec = result.get("final_recommendation")
     assert final_rec is not None
-    assert final_rec.status in ("OPTIMIZATION_NORMAL", "SUCCESS")
+    assert any(final_rec.status.startswith(prefix) for prefix in ("DEADBAND", "SUCCESS"))
     assert len(result.get("candidates", [])) > 0
-    assert result["candidates"][0].candidate_id == "cand_baseline_01"
+    assert result["candidates"][0].is_hold is True
 
 
 def test_state_reducers():

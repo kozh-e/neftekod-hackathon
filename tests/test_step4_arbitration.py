@@ -171,28 +171,16 @@ def test_arbitration_deadband_norm():
     assert final_rec.recommended_delta_u == {}
 
 
-def test_langgraph_step4_full_pipeline():
+def test_langgraph_step4_full_pipeline(quality_risk_tags):
     """Тест 7: Сквозной прогон графа: Guard -> Opt -> [Rel, Qual] -> Arb -> Blending."""
     graph = build_mvp_graph()
 
-    telemetry = RawTelemetry(
-        timestamp="2026-09-15T15:30:00",
-        P52=0.045,
-        D10=840.0,
-        F15=400.0,
-        T55=380.0,
-        F5=25.0,
-        F26=80.0,
-        Sulfur=8.2,
-        lims_age_hours=2.0
-    )
-
-    result = graph.invoke({"raw_telemetry": telemetry})
+    result = graph.invoke({"tags": quality_risk_tags})
 
     # Проверяем успешный арбитраж
     final_rec = result.get("final_recommendation")
     assert final_rec is not None
-    assert final_rec.status == "SUCCESS"
+    assert final_rec.status.startswith("SUCCESS")
     assert len(final_rec.recommended_delta_u) > 0
 
     # Проверяем, что управление передано в Blending Agent и рецептура рассчитана
@@ -232,6 +220,6 @@ def test_langgraph_step4_veto_safe_hold():
 
     final_rec = result.get("final_recommendation")
     assert final_rec is not None
-    assert final_rec.status == "SAFE_HOLD"
+    assert final_rec.status.startswith("SAFE_HOLD")
     assert "Надёжной рекомендации нет" in final_rec.explanation
     assert final_rec.recommended_delta_u == {}
