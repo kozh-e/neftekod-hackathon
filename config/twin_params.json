@@ -1,0 +1,60 @@
+{
+  "reactor": {
+    "c0": 8.5515,
+    "cF": -0.03306,
+    "cS": -0.11741,
+    "cQ": 0.00155,
+    "s_out_ref": 8.5,
+    "feed_ref": 216.4573,
+    "t_in_ref": 361.9676,
+    "p_ref": 3.9146,
+    "gor_ref": 360.0,
+    "quench_ref": 6.6668,
+    "dp_ref_kpa": 159.0
+  },
+  "stabilizer": {
+    "flash_ref": 69.0,
+    "f9_ref": 216.4573,
+    "p24_ref": 0.5846,
+    "w7_ref": 0.1718,
+    "a_F": -0.128,
+    "a_P": -0.58,
+    "a_W": 1.064
+  },
+  "product": {
+    "cfpp_ref": -6.0,
+    "cn_ref": 55.0,
+    "delta_d15_hdt": 11.1,
+    "delta_t95_hdt": 6.0
+  },
+  "limits": {
+    "sigma_s0_ppm": 1.532,
+    "sigma_flash_c": 4.302
+  },
+  "economics": {
+    "price_crude_oil": 41500.0,
+    "price_straight_run": 52000.0,
+    "price_godt": 68000.0,
+    "price_kerosene": 88000.0,
+    "price_gasoil": 52000.0,
+    "y_liq": 0.98,
+    "fuel_gas_price_rub_1000nm3": 7800.0,
+    "fuel_gas_lhv_mj_nm3": 35.8,
+    "fuel_rub_mwh": 2700.0,
+    "eta_furnace": 0.85,
+    "cp_oil": 2.8,
+    "power_rub_kwh": 6.8,
+    "compressor_rub_per_nm3": 0.34,
+    "pressure_rub_h_per_mpa": 22000.0,
+    "h2_rub_per_nm3": 16.5,
+    "catalyst_rub_h_per_degC": 450.0,
+    "min_margin_improvement": 1000.0
+  },
+  "blend": {
+    "price_godt": 68000.0,
+    "price_kerosene": 88000.0,
+    "price_gasoil": 52000.0,
+    "additive_a_price_rub_t": 450000.0,
+    "additive_b_price_rub_t": 260000.0
+  }
+}

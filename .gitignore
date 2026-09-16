@@ -8,3 +8,7 @@ __pycache__/
 *.py[cod]
 .pytest_cache/
 .claude/
+*.jsonl
+data/decisions/
+.*.bkp
+*.bkp
