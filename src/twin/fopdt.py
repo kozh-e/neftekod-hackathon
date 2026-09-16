@@ -62,13 +62,15 @@ CONTROL_INPUTS: List[str] = ["F19", "F12", "F31", "F15", "T20_sp"]
 
 # Матрица статических коэффициентов передачи K (6x5) из System_Design.md (Шаг 2.4)
 # Строки: STATE_VARIABLES, Столбцы: CONTROL_INPUTS
+# ПРИМЕЧАНИЕ (v2): строки T6, W10, Sulfur и входной параметр F15 сохранены для обратной
+# совместимости тестов Шага 2 (legacy-демо) и не используются в сквозной цепочке FullChainTwin.
 DEFAULT_GAIN_MATRIX: Dict[str, Dict[str, float]] = {
     "T20":    {"F19": -0.120, "F12": -0.020, "F31":  0.000, "F15":  0.000,   "T20_sp":  0.850},
     "T33":    {"F19": -0.080, "F12": -0.160, "F31": +0.040, "F15":  0.000,   "T20_sp":  0.100},
     "T55":    {"F19":  0.000, "F12":  0.000, "F31": -0.045, "F15":  0.000,   "T20_sp":  0.000},
-    "T6":     {"F19":  0.000, "F12":  0.000, "F31":  0.000, "F15": -0.014,   "T20_sp":  0.000},
-    "W10":    {"F19":  0.000, "F12":  0.000, "F31":  0.000, "F15": +0.00025, "T20_sp":  0.000},
-    "Sulfur": {"F19":  0.000, "F12":  0.000, "F31":  0.000, "F15": +0.012,   "T20_sp":  0.000},
+    "T6":     {"F19":  0.000, "F12":  0.000, "F31":  0.000, "F15": -0.014,   "T20_sp":  0.000},  # legacy-demo
+    "W10":    {"F19":  0.000, "F12":  0.000, "F31":  0.000, "F15": +0.00025, "T20_sp":  0.000},  # legacy-demo
+    "Sulfur": {"F19":  0.000, "F12":  0.000, "F31":  0.000, "F15": +0.012,   "T20_sp":  0.000},  # legacy-demo
 }
 
 # Стандартные среднеквадратичные отклонения шума КИПиА (при enable_noise=True)
@@ -209,3 +211,43 @@ class DiscreteMIMOFOPDTTwin:
         telemetry.update(vak_values)
 
         return telemetry
+
+
+class FirstOrderDeadTime:
+    """
+    Звено апериодической динамики первого порядка с чистым запаздыванием (FOPDT).
+    y[k] = a * y[k-1] + (1 - a) * u_ss[k-d]
+    где a = exp(-dt / tau); d = round(theta / dt).
+    На вход подаётся статическое (установившееся) значение u_ss.
+    """
+
+    def __init__(self, tau_min: float, theta_min: float, dt_min: float, y0: float):
+        self.tau_min = max(0.0, tau_min)
+        self.theta_min = max(0.0, theta_min)
+        self.dt_min = max(1e-4, dt_min)
+        self.d = max(0, round(self.theta_min / self.dt_min))
+        self.a = math.exp(-self.dt_min / self.tau_min) if self.tau_min > 1e-4 else 0.0
+
+        self._buf: deque[float] = deque(maxlen=max(1, self.d + 1))
+        self._y: float = y0
+        self.reset(y0)
+
+    def reset(self, y0: float) -> None:
+        """Сброс буфера задержки и внутреннего состояния к значению y0."""
+        self._buf.clear()
+        for _ in range(self.d + 1):
+            self._buf.append(y0)
+        self._y = y0
+
+    def step(self, u_ss: float) -> float:
+        """Шаг дискретного фильтра с чистым запаздыванием."""
+        self._buf.append(u_ss)
+        delayed_u = self._buf[0]
+        self._y = self.a * self._y + (1.0 - self.a) * delayed_u
+        return self._y
+
+    @property
+    def value(self) -> float:
+        """Текущее значение выхода звена."""
+        return self._y
+
