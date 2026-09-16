@@ -47,8 +47,14 @@ uvicorn main:app --host 0.0.0.0 --port 8000 --reload
 streamlit run streamlit_app.py
 # (или streamlit run src/ui/app.py)
 
-# Запуск всех 42 модульных тестов
+# Запуск всех 104 модульных и интеграционных тестов
 pytest -v tests/
+
+# Запуск реплея 4 технологических сценариев (Норма, Риск качества, Отказ КИП, Конфликт ПАЗ)
+python scripts/replay_scenarios.py
+
+# Офлайн-калибровка параметров цифрового двойника на архивах телеметрии
+python scripts/calibrate_twin.py
 ```
 
 ---
@@ -61,16 +67,19 @@ pytest -v tests/
 ├── .dockerignore       # Оптимизация контекста сборки Docker
 ├── start.sh            # Скрипт запуска в один клик
 ├── requirements.txt    # Зависимости проекта
-├── main.py             # FastAPI микросервис
+├── main.py             # FastAPI микросервис (/api/v1/optimize с поддержкой economics)
 ├── streamlit_app.py    # Точка входа веб-консоли диспетчера
-├── initial_data/       # Начальные технологические данные и схемы
-├── artifacts/          # Системный дизайн, дорожная карта, ТЗ
-├── notebooks/          # Исследовательские ноутбуки
-├── data/               # Данные и датасеты
+├── config/             # Зафиксированные конфигурации (config/twin_params.json)
+├── initial_data/       # Исходные технологические регламенты и выгрузки архивов
+├── new_data/           # Официальные реестры тегов и 17 моделей формул ВАК
+├── artifacts/          # Системный дизайн, дорожная карта,whats_done.md
+├── agents/             # Системные промты, DOMAIN_KNOWLEDGE.md, ASSUMPTIONS.md
+├── scripts/            # Скрипты калибровки (calibrate_twin.py) и реплея сценариев (replay_scenarios.py)
+├── data/               # Калибровочные отчеты и аудит-журналы решений (decisions.jsonl)
 ├── src/                # Исходный код системы
-│   ├── twin/           # Физический цифровой двойник (FOPDT, ВАК)
-│   ├── agents/         # Мультиагентный граф (Safety, Quality, Arbitration, LIMS)
-│   ├── xai/            # Генератор диспетчерских отчетов XAI
-│   └── ui/             # Диспетчерская консоль оператора (Streamlit)
-└── tests/              # Набор из 42 модульных тестов
+│   ├── twin/           # Физический цифровой двойник (FeedLink, Kinetics, Stabilizer, Product, FullChainTwin)
+│   ├── agents/         # Мультиагентный граф (Optimization, Safety, Quality, Arbitration, Tank Blending)
+│   ├── xai/            # Генератор диспетчерских отчетов XAI на русском языке
+│   └── ui/             # Диспетчерская консоль оператора (Streamlit с блоком управления экономикой)
+└── tests/              # Набор из 104 тестов (unit, e2e, rollout, arbitration, blending, VAK, latency p95)
 ```
