@@ -1,41 +1,48 @@
 """Консоль оператора технологического комплекса (Streamlit HITL).
 
-Реализует требования Шага 6 MVP (mvp_sixth_step.md):
-- Отображение ключевой технологической телеметрии КИПиА и возраста LIMS
-- Вывод вердиктов мультиагентной системы APC/MES (SUCCESS / SAFE_HOLD / DEADBAND)
-- Структурированный диспетчерский отчет XAI с физико-химическим обоснованием
-- Human-in-the-Loop (HITL): кнопки утверждения уставок (отправка на ПЛК) и отклонения
-- Ручное переопределение тегов (Tag Override / ISA-18.2 Alarm Suppression)
+Реализует требования Шага 6 и implementation_plan_v2.md (T6.4):
+- Официальные параметры КИПиА в боковой панели (HT_F9, HT_T6, HT_P13, HT_GOR, HT_Q21, HT_P8, AVT_T55);
+- Отображение вердиктов APC/MES (SUCCESS, SUCCESS_CORRECTIVE, SAFE_HOLD, DEADBAND);
+- График динамического прогноза серы и вспышки (hold против выбранного кандидата);
+- Таблица альтернатив для оператора (Explainable AI);
+- Рецептура блендинга из резервуаров (3 компонента + присадки А/Б);
+- Кнопка «ОДОБРИТЬ» фиксирует уставки через TwinSessionStore (TWIN_STORE.commit_applied_move).
 """
 
 from __future__ import annotations
 
+import datetime
 import os
-import sys
 from pathlib import Path
+import sys
+import time
 
-# Обеспечиваем доступность корневого пакета src при запуске через `streamlit run src/ui/app.py`
+# Обеспечиваем доступность корневого пакета src при запуске через streamlit
 ROOT_DIR = Path(__file__).resolve().parent.parent.parent
 if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
 
-import time
-import datetime
+import pandas as pd
 import streamlit as st
 
-from src.agents.state import RawTelemetry
 from src.agents.graph import build_mvp_graph
-from src.xai.narrative import XAIGenerator
+from src.agents.state import RawTelemetry
+from src.twin.params import load_params
+from src.twin.session import TWIN_STORE
+from src.twin.tags import NOMINAL_OPERATING_POINT
 
 st.set_page_config(
     page_title="Dark Factory MES - Диспетчерская",
     page_icon="🛢️",
-    layout="wide"
+    layout="wide",
 )
 
 # -----------------------------------------------------------------------------
 # Инициализация состояния сессии Streamlit
 # -----------------------------------------------------------------------------
+if "session_id" not in st.session_state:
+    st.session_state.session_id = f"session_{int(time.time())}"
+
 if "system_status" not in st.session_state:
     st.session_state.system_status = "NORMAL"
 
@@ -49,94 +56,341 @@ if "compiled_graph" not in st.session_state:
     st.session_state.compiled_graph = build_mvp_graph()
 
 # -----------------------------------------------------------------------------
-# Боковая панель: Входная телеметрия процесса
+# Боковая панель: Входная телеметрия процесса (официальные теги §7.1)
 # -----------------------------------------------------------------------------
 st.sidebar.header("⚙️ Входные параметры КИПиА")
 
-feed_rate = st.sidebar.number_input("Расход сырья F26 (т/ч)", value=210.5, step=1.0, min_value=0.0)
-furnace_cot = st.sidebar.number_input("Температура перевала печи T55 (°C)", value=380.0, step=0.5, max_value=400.0)
-quench_flow = st.sidebar.number_input("Квенч водорода F15 (нм³/ч)", value=400.0, step=10.0, min_value=0.0)
-vacuum_dp = st.sidebar.number_input("Перепад вакуума P52 (кгс/см²)", value=0.045, step=0.005, min_value=0.0)
-density = st.sidebar.number_input("Плотность сырья D10 (кг/м³)", value=840.0, step=1.0, min_value=700.0)
-sulfur_pak = st.sidebar.number_input("Сера поточная ПАК (ppm)", value=8.2, step=0.1, min_value=0.0)
-lims_age = st.sidebar.slider("Возраст анализов LIMS (часы)", min_value=0.0, max_value=30.0, value=2.5, step=0.5)
-
-run_opt_btn = st.sidebar.button("🚀 Запустить цикл оптимизации", width="stretch", type="primary")
+feed_f9 = st.sidebar.number_input(
+    "Расход сырья 24-2000 HT_F9 (т/ч)",
+    value=float(NOMINAL_OPERATING_POINT.get("HT_F9", 219.6)),
+    step=1.0,
+    min_value=50.0,
+    max_value=300.0,
+)
+temp_t6 = st.sidebar.number_input(
+    "Температура входа Р-202 HT_T6 (°C)",
+    value=float(NOMINAL_OPERATING_POINT.get("HT_T6", 363.3)),
+    step=0.5,
+    min_value=320.0,
+    max_value=400.0,
+)
+press_p13 = st.sidebar.number_input(
+    "Давление входа Р-202 HT_P13 (МПа)",
+    value=float(NOMINAL_OPERATING_POINT.get("HT_P13", 3.922)),
+    step=0.01,
+    min_value=3.0,
+    max_value=5.0,
+)
+gor_val = st.sidebar.number_input(
+    "Кратность ВСГ/сырье HT_GOR (нм³/м³)",
+    value=float(NOMINAL_OPERATING_POINT.get("HT_GOR", 360.0)),
+    step=5.0,
+    min_value=200.0,
+    max_value=600.0,
+)
+sulfur_q21 = st.sidebar.number_input(
+    "Сера онлайн-анализатора HT_Q21 (ppm)",
+    value=float(NOMINAL_OPERATING_POINT.get("HT_Q21", 8.43)),
+    step=0.1,
+    min_value=0.0,
+    max_value=50.0,
+)
+dp_p8 = st.sidebar.number_input(
+    "Перепад давления Р-202 HT_P8 (МПа)",
+    value=float(NOMINAL_OPERATING_POINT.get("HT_P8", 0.177)),
+    step=0.005,
+    min_value=0.05,
+    max_value=0.50,
+)
+cot_t55 = st.sidebar.number_input(
+    "Перевал печи П-3 AVT_T55 (°C)",
+    value=float(NOMINAL_OPERATING_POINT.get("AVT_T55", 381.7)),
+    step=0.5,
+    min_value=350.0,
+    max_value=400.0,
+)
+lims_age = st.sidebar.slider(
+    "Возраст анализов LIMS (часы)",
+    min_value=0.0,
+    max_value=30.0,
+    value=2.0,
+    step=0.5,
+)
 
 # -----------------------------------------------------------------------------
-# Главный заголовок и KPI метрики
+# Боковая панель: Рыночные цены и экономика процесса
+# -----------------------------------------------------------------------------
+twin_defaults = load_params()
+econ_defaults = twin_defaults.economics
+blend_defaults = twin_defaults.blend
+
+st.sidebar.markdown("---")
+with st.sidebar.expander("💰 Параметры рынка и тарифов", expanded=False):
+    st.caption("Цены СПбМТСБ, тарифы ФАС и себестоимость энергоносителей")
+
+    st.markdown("##### Сырье и дистилляты (СПбМТСБ)")
+    price_godt = st.number_input(
+        "ГО ДТ Евро-5 (руб/т)",
+        value=float(econ_defaults.price_godt),
+        step=500.0,
+        min_value=30000.0,
+        max_value=120000.0,
+        key="econ_price_godt",
+    )
+    price_straight = st.number_input(
+        "Прямогонный дизель F30+F32 (руб/т)",
+        value=float(econ_defaults.price_straight_run),
+        step=500.0,
+        min_value=25000.0,
+        max_value=100000.0,
+        key="econ_price_straight",
+    )
+    price_crude = st.number_input(
+        "Сырая нефть Urals (руб/т)",
+        value=float(econ_defaults.price_crude_oil),
+        step=500.0,
+        min_value=20000.0,
+        max_value=80000.0,
+        key="econ_price_crude",
+    )
+    price_kerosene = st.number_input(
+        "Керосин ТС-1 (руб/т)",
+        value=float(econ_defaults.price_kerosene),
+        step=500.0,
+        min_value=40000.0,
+        max_value=150000.0,
+        key="econ_price_kerosene",
+    )
+    price_gasoil = st.number_input(
+        "Газойль вторичный (руб/т)",
+        value=float(econ_defaults.price_gasoil),
+        step=500.0,
+        min_value=25000.0,
+        max_value=100000.0,
+        key="econ_price_gasoil",
+    )
+
+    st.markdown("##### Присадки блендинга")
+    price_ddp = st.number_input(
+        "Депрессорная ДДП A (руб/т)",
+        value=float(blend_defaults.additive_a_price_rub_t),
+        step=5000.0,
+        min_value=100000.0,
+        max_value=1000000.0,
+        key="econ_price_ddp",
+    )
+    price_cetane = st.number_input(
+        "Цетаноповышающая B (руб/т)",
+        value=float(blend_defaults.additive_b_price_rub_t),
+        step=5000.0,
+        min_value=100000.0,
+        max_value=800000.0,
+        key="econ_price_cetane",
+    )
+
+    st.markdown("##### Энергоресурсы и катализатор")
+    fuel_gas_mwh = st.number_input(
+        "Тепловая энергия печей (руб/МВт·ч)",
+        value=float(econ_defaults.fuel_rub_mwh),
+        step=50.0,
+        min_value=1000.0,
+        max_value=10000.0,
+        key="econ_fuel_rub_mwh",
+    )
+    power_kwh = st.number_input(
+        "Тариф на э/э (руб/кВт·ч)",
+        value=float(econ_defaults.power_rub_kwh),
+        step=0.1,
+        min_value=2.0,
+        max_value=20.0,
+        key="econ_power_kwh",
+    )
+    h2_cost = st.number_input(
+        "Водород КЦА (руб/нм³)",
+        value=float(econ_defaults.h2_rub_per_nm3),
+        step=0.5,
+        min_value=5.0,
+        max_value=50.0,
+        key="econ_h2_cost",
+    )
+    cat_cost = st.number_input(
+        "Дезактивация катализатора (руб/(ч·°C))",
+        value=float(econ_defaults.catalyst_rub_h_per_degC),
+        step=25.0,
+        min_value=50.0,
+        max_value=2000.0,
+        key="econ_cat_cost",
+    )
+    min_margin = st.number_input(
+        "Порог Deadband (руб/ч)",
+        value=float(econ_defaults.min_margin_improvement),
+        step=100.0,
+        min_value=0.0,
+        max_value=10000.0,
+        key="econ_deadband",
+    )
+
+    crack_straight_run = price_godt - price_straight
+    crack_crude = (price_godt * econ_defaults.y_liq) - price_crude
+    st.markdown("---")
+    st.markdown(f"**Спред Прямогон → ДТ:** `{crack_straight_run:,.0f}` руб/т")
+    st.markdown(f"**Спред Нефть → ДТ:** `{crack_crude:,.0f}` руб/т")
+
+    if st.button("🔄 Сбросить экономику к бенчмаркам"):
+        for k in (
+            "econ_price_godt", "econ_price_straight", "econ_price_crude",
+            "econ_price_kerosene", "econ_price_gasoil", "econ_price_ddp", "econ_price_cetane",
+            "econ_fuel_rub_mwh", "econ_power_kwh", "econ_h2_cost", "econ_cat_cost", "econ_deadband"
+        ):
+            if k in st.session_state:
+                del st.session_state[k]
+        st.rerun()
+
+economics_input = {
+    "price_godt": price_godt,
+    "price_straight_run": price_straight,
+    "price_crude_oil": price_crude,
+    "price_kerosene": price_kerosene,
+    "price_gasoil": price_gasoil,
+    "additive_a_price_rub_t": price_ddp,
+    "additive_b_price_rub_t": price_cetane,
+    "fuel_rub_mwh": fuel_gas_mwh,
+    "power_rub_kwh": power_kwh,
+    "compressor_rub_per_nm3": round(power_kwh * 0.05, 4),
+    "h2_rub_per_nm3": h2_cost,
+    "catalyst_rub_h_per_degC": cat_cost,
+    "min_margin_improvement": min_margin,
+}
+
+
+# -----------------------------------------------------------------------------
+# Подготовка входной телеметрии и вызов графа
+# -----------------------------------------------------------------------------
+effective_d10 = st.session_state.overrides.get("D10", 840.0)
+effective_p52 = st.session_state.overrides.get("P52", 0.045)
+
+tags_input = {
+    "HT_F9": feed_f9,
+    "HT_T6": temp_t6,
+    "HT_P13": press_p13,
+    "HT_GOR": gor_val,
+    "HT_Q21": sulfur_q21,
+    "HT_P8": dp_p8,
+    "AVT_T55": cot_t55,
+    "lims_age_hours": lims_age,
+    "AVT_P52": effective_p52,
+    "AVT_D10": effective_d10,
+    "timestamp": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+    "P52": effective_p52,
+    "D10": effective_d10,
+    "F15": 3400.0,
+    "T55": cot_t55,
+}
+
+raw_telemetry = RawTelemetry(
+    timestamp=tags_input["timestamp"],
+    P52=effective_p52,
+    D10=effective_d10,
+    F15=3400.0,
+    T55=cot_t55,
+    F5=25.0,
+    F26=feed_f9,
+    lims_age_hours=lims_age,
+)
+
+state_input = {
+    "raw_telemetry": raw_telemetry,
+    "tags": tags_input,
+    "session_id": st.session_state.session_id,
+    "economics": economics_input,
+}
+
+graph_result = st.session_state.compiled_graph.invoke(state_input)
+final_rec = graph_result.get("final_recommendation")
+data_quality = graph_result.get("data_quality")
+blending_recipe = graph_result.get("blending_recipe")
+selected_cand = graph_result.get("selected_candidate")
+hold_prediction = graph_result.get("hold_prediction", {})
+alternatives = graph_result.get("alternatives", [])
+
+# -----------------------------------------------------------------------------
+# Главный заголовок и KPI метрики (технологические + экономические)
 # -----------------------------------------------------------------------------
 st.title("🛢️ Нефтекод: Панель Диспетчера")
 st.caption("Автономный комплекс управления качеством: ЭЛОУ-АВТ-6 → Гидроочистка 24-2000 → Инлайн-блендинг Евро-5")
 
 col1, col2, col3, col4 = st.columns(4)
-col1.metric(
-    label="Сырье (F26)",
-    value=f"{feed_rate:.1f} т/ч",
-    delta="В норме"
-)
+col1.metric(label="Сырье (HT_F9)", value=f"{feed_f9:.1f} т/ч", delta="В норме")
 
-sulfur_delta = f"{sulfur_pak - 8.0:+.1f} ppm"
+sulfur_delta = f"{sulfur_q21 - 8.6:+.2f} ppm"
 col2.metric(
-    label="Сера (ПАК)",
-    value=f"{sulfur_pak:.1f} ppm",
+    label="Сера онлайн (HT_Q21)",
+    value=f"{sulfur_q21:.2f} ppm",
     delta=sulfur_delta,
-    delta_color="inverse" if sulfur_pak > 9.5 else "normal"
+    delta_color="inverse" if sulfur_q21 > 9.5 else "normal",
 )
 
-lims_delta = "Требуется отбор пробы!" if lims_age >= 24.0 else (
-    "Высокая погрешность" if lims_age > 8.0 else "Паспорт актуален"
+lims_delta = (
+    "Требуется отбор пробы!"
+    if lims_age >= 24.0
+    else ("Высокая погрешность" if lims_age > 8.0 else "Паспорт актуален")
 )
 col3.metric(
     label="LIMS Возраст",
     value=f"{lims_age:.1f} ч",
     delta=lims_delta,
-    delta_color="inverse" if lims_age >= 24.0 else "normal"
+    delta_color="inverse" if lims_age >= 24.0 else "normal",
 )
 
-cot_margin = 386.4 - furnace_cot
+cot_margin = 386.4 - cot_t55
 col4.metric(
-    label="Печь П-3 COT (T55)",
-    value=f"{furnace_cot:.1f} °C",
+    label="Печь П-3 COT (AVT_T55)",
+    value=f"{cot_t55:.1f} °C",
     delta=f"Запас до ПАЗ: {cot_margin:.1f} °C",
-    delta_color="normal" if cot_margin >= 2.0 else "inverse"
+    delta_color="normal" if cot_margin >= 2.0 else "inverse",
+)
+
+# Экономические KPI (Crack-Spread и маржинальность процесса)
+ecol1, ecol2, ecol3, ecol4 = st.columns(4)
+
+gross_hourly_margin = feed_f9 * (price_godt * econ_defaults.y_liq - price_straight)
+ecol1.metric(
+    label="Спред Прямогон → ГО ДТ",
+    value=f"{crack_straight_run:,.0f} ₽/т",
+    delta="Маржа гидроочистки",
+)
+ecol2.metric(
+    label="Сквозной спред Нефть → ГО ДТ",
+    value=f"{crack_crude:,.0f} ₽/т",
+    delta=f"Выход {econ_defaults.y_liq * 100:.0f}%",
+)
+ecol3.metric(
+    label="Валовая маржа ГО",
+    value=f"{gross_hourly_margin:,.0f} ₽/ч",
+    delta=f"При {feed_f9:.1f} т/ч сырья",
+)
+
+net_utility_disp = (
+    selected_cand.expected_margin
+    if (selected_cand and selected_cand.expected_margin is not None)
+    else 0.0
+)
+ecol4.metric(
+    label="Δ Маржи рекомендации (Net Utility)",
+    value=f"{net_utility_disp:+,.0f} ₽/ч",
+    delta="К текущему hold" if abs(net_utility_disp) > 1e-3 else "В точке оптимума",
+    delta_color="normal" if net_utility_disp >= 0 else "inverse",
 )
 
 st.divider()
 
-# -----------------------------------------------------------------------------
-# Выполнение мультиагентной оптимизации
-# -----------------------------------------------------------------------------
-st.subheader("🤖 Рекомендация Мультиагентной Системы (APC/MES)")
-
-# Применяем ручные переопределения (ISA-18.2 Override)
-effective_d10 = st.session_state.overrides.get("D10", density)
-effective_p52 = st.session_state.overrides.get("P52", vacuum_dp)
-
-telemetry = RawTelemetry(
-    timestamp=datetime.datetime.now(datetime.timezone.utc).isoformat(),
-    P52=effective_p52,
-    D10=effective_d10,
-    F15=quench_flow,
-    T55=furnace_cot,
-    F5=25.0,
-    F26=feed_rate,
-    Sulfur=sulfur_pak,
-    lims_age_hours=lims_age
-)
-
-graph_result = st.session_state.compiled_graph.invoke({"raw_telemetry": telemetry})
-final_rec = graph_result.get("final_recommendation")
-data_quality = graph_result.get("data_quality")
-blending_recipe = graph_result.get("blending_recipe")
+st.subheader("🤖 Решение Мультиагентной Системы (APC/MES)")
 
 if final_rec is None:
     st.warning("⚠️ Результат вычислений графа не получен.")
 elif final_rec.status.startswith("SAFE_HOLD"):
     st.error("🚨 Режим БЕЗОПАСНОГО УДЕРЖАНИЯ (Safe Hold)")
     st.warning(final_rec.explanation)
-    if getattr(final_rec, "markdown_report", None):
-        st.markdown(final_rec.markdown_report)
     if data_quality and data_quality.refusal_reason:
         st.info(f"Диагностика Data Guard: {data_quality.refusal_reason}")
 
@@ -144,9 +398,12 @@ elif final_rec.status.startswith("DEADBAND"):
     st.info(f"⏸️ Зона нечувствительности (Deadband): {final_rec.status}")
     st.write(final_rec.explanation)
 
-elif final_rec.status == "SUCCESS":
-    st.success("✅ Найдена оптимальная и проверенная аудиторами стратегия управления")
-    
+elif final_rec.status.startswith("SUCCESS"):
+    if final_rec.status == "SUCCESS_CORRECTIVE":
+        st.warning("⚠️ Режим АВТОМАТИЧЕСКОЙ КОРРЕКЦИИ: базовый режим нарушает нормативы качества/ПАЗ")
+    else:
+        st.success("✅ Найдена оптимальная стратегия управления технологическим комплексом")
+
     col_report, col_action = st.columns([2, 1])
 
     with col_report:
@@ -155,21 +412,70 @@ elif final_rec.status == "SUCCESS":
         else:
             st.markdown(final_rec.explanation)
 
+        # График динамического прогноза
+        if selected_cand and selected_cand.trajectory and hold_prediction:
+            with st.expander("📈 Динамический прогноз: удержание (hold) vs рекомендация", expanded=True):
+                cand_s = selected_cand.trajectory.get("HT_S_PRODUCT", [])
+                hold_s = hold_prediction.get("HT_S_PRODUCT", [])
+                if cand_s and hold_s:
+                    steps = list(range(1, min(len(cand_s), len(hold_s)) + 1))
+                    df_s = pd.DataFrame({
+                        "Такт (x10 мин)": steps,
+                        "Рекомендация (Сера, ppm)": cand_s[: len(steps)],
+                        "Hold (Сера, ppm)": hold_s[: len(steps)],
+                    }).set_index("Такт (x10 мин)")
+                    st.line_chart(df_s)
+
+        # Таблица альтернатив
+        if alternatives:
+            with st.expander("⚖️ Таблица альтернативных технологических ходов"):
+                rows = []
+                for a in alternatives:
+                    rows.append({
+                        "ID": a.get("candidate_id"),
+                        "Статус": a.get("status"),
+                        "Чистая маржа, руб/ч": a.get("net_utility"),
+                        "Выбран": "Да" if a.get("is_selected") else "Нет",
+                        "Причина / Штрафы": a.get("reasons") or f"Штраф: {a.get('risk_penalty', 0)} руб/ч",
+                    })
+                st.dataframe(pd.DataFrame(rows), width="stretch")
+
+        # Детализация маржи кандидата
+        if selected_cand and selected_cand.margin_breakdown:
+            with st.expander("💰 Детализация операционной маржи (Margin Breakdown)"):
+                mb = selected_cand.margin_breakdown
+                df_mb = pd.DataFrame([
+                    {"Статья": "📈 Сырьевой поток (Throughput)", "Вклад (руб/ч)": f"{mb.get('throughput', 0.0):+,.2f}"},
+                    {"Статья": "🔥 Подогрев печи (Топливный газ)", "Вклад (руб/ч)": f"{-mb.get('furnace', 0.0):+,.2f}"},
+                    {"Статья": "⚡ Компримирование ВСГ (Электроэнергия)", "Вклад (руб/ч)": f"{-mb.get('compressor', 0.0):+,.2f}"},
+                    {"Статья": "🗜️ Системное давление", "Вклад (руб/ч)": f"{-mb.get('pressure', 0.0):+,.2f}"},
+                    {"Статья": "💧 Водород КЦА", "Вклад (руб/ч)": f"{-mb.get('hydrogen', 0.0):+,.2f}"},
+                    {"Статья": "🧪 Дезактивация катализатора", "Вклад (руб/ч)": f"{-mb.get('catalyst', 0.0):+,.2f}"},
+                    {"Статья": "🏆 ИТОГО ЧИСТАЯ МАРЖА (Net Utility)", "Вклад (руб/ч)": f"{selected_cand.expected_margin:+,.2f}"},
+                ])
+                st.dataframe(df_mb, width="stretch", hide_index=True)
+                if "furnace_fuel_gas_nm3" in mb and abs(mb.get("furnace_fuel_gas_nm3", 0.0)) > 1e-3:
+                    st.caption(f"Изменение расхода топливного газа печи: {mb.get('furnace_fuel_gas_nm3'):+.1f} нм³/ч (тепловая нагрузка: {mb.get('furnace_mwh', 0.0):+.3f} МВт·ч)")
+
+
+        # Рецептура блендинга
         if blending_recipe is not None and getattr(blending_recipe, "success", False):
-            with st.expander("🧪 Оптимальная рецептура блендинга (HiGHS LP)"):
-                v_d = getattr(blending_recipe, "v_diesel", 0.0)
-                v_k = getattr(blending_recipe, "v_kerosene", 0.0)
-                v_ddp = getattr(blending_recipe, "v_ddp_ppm", 0.0)
-                st.write(f"• Доля базового дизеля: **{v_d:.1%}**")
-                st.write(f"• Доля керосина КО: **{v_k:.1%}**")
-                st.write(f"• Дозировка ДДП присадки: **{v_ddp:.0f} ppm**")
-                st.write(f"• Расчетная температура вспышки: **{blending_recipe.expected_flash:.1f} °C**")
-                st.write(f"• Расчетная ПТФ (CFPP): **{blending_recipe.expected_cfpp:.1f} °C**")
+            with st.expander("🧪 Оптимальная рецептура товарного блендинга (HiGHS LP)", expanded=True):
+                shares = getattr(blending_recipe, "shares", {})
+                if shares:
+                    st.write("#### Компоненты топлива:")
+                    for c_name, sh in shares.items():
+                        st.write(f"• **{c_name}**: {sh * 100.0:.1f}%")
+                doses = getattr(blending_recipe, "additive_doses_kg_t", {})
+                if doses:
+                    st.write("#### Дозировка присадок:")
+                    for a_name, d_val in doses.items():
+                        st.write(f"• **{a_name}**: {d_val:.2f} кг/т")
 
     with col_action:
         st.write("### 🎮 Решение Диспетчера (HITL)")
 
-        # Ручное переопределение тегов (ISA-18.2 Alarm Suppression / Override)
+        # Ручное вмешательство (ISA-18.2 Override)
         with st.expander("🔧 Ручное вмешательство (Tag Override)"):
             st.info("При сбое датчика зафиксируйте проверенное значение:")
             override_d10 = st.number_input("Тег D10 (Плотность)", value=effective_d10, key="ov_d10")
@@ -188,6 +494,9 @@ elif final_rec.status == "SUCCESS":
 
         if st.button("🟢 ОДОБРИТЬ (Отправить на ПЛК)", width="stretch", type="primary"):
             st.session_state.system_status = "APPLYING"
+            if selected_cand and selected_cand.delta_u:
+                # Фиксация уставок в двойнике
+                TWIN_STORE.commit_applied_move(st.session_state.session_id, selected_cand.delta_u)
             with st.spinner("Безударная передача уставок в контроллеры DCS/APC..."):
                 time.sleep(1)
             st.session_state.last_applied_time = datetime.datetime.now().strftime("%H:%M:%S")
