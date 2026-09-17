@@ -87,6 +87,11 @@ class ComponentTank:
         cfpp_in = props_in.get("CFPP", props_in.get("HT_CFPP_PRODUCT", cfpp_old))
         cfpp_new = v_frac_old * cfpp_old + v_frac_in * cfpp_in
 
+        # Объемное смешение фракции разгонки E360 (% об.)
+        e360_old = self.props.get("E360", 96.0)
+        e360_in = props_in.get("E360", props_in.get("HT_E360_PRODUCT", e360_old))
+        e360_new = v_frac_old * e360_old + v_frac_in * e360_in
+
         # 5. Температура вспышки через индекс FBI
         flash_old = self.props.get("Flash", 68.0)
         flash_in = props_in.get("Flash", props_in.get("HT_FLASH", flash_old))
@@ -99,6 +104,7 @@ class ComponentTank:
         self.props["S_ppm"] = s_new
         self.props["D15"] = d15_new
         self.props["T95"] = t95_new
+        self.props["E360"] = e360_new
         self.props["CN"] = cn_new
         self.props["CFPP"] = cfpp_new
         self.props["Flash"] = flash_new

@@ -14,6 +14,7 @@
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass
+import math
 from typing import Any, Dict, Mapping, Optional
 
 from src.twin.params import EconomicsParams, ReactorParams
@@ -210,3 +211,75 @@ class MarginModel:
             furnace_mwh=round(furnace_mwh, 4),
             avt_diesel=round(avt_diesel, 2),
         )
+
+
+class EconomicsEvaluator:
+    """
+    Оценщик полезности технологических ходов согласно спецификации §5.10 (Задача P2.7).
+    Полезность = Маржа (с ограничением по балансу сырья) + Вклад цен блендинга
+                 - Стоимость перемещения MV - Износ катализатора.
+    Логарифмический барьер риска исключен из полезности согласно ADR-15.
+    """
+
+    def __init__(
+        self,
+        margin_model: Optional[MarginModel] = None,
+        policy: Optional[Any] = None,
+    ) -> None:
+        self.margin_model = margin_model or MarginModel()
+        self.policy = policy
+
+    def utility(
+        self,
+        ss: Mapping[str, float],
+        ss_hold: Mapping[str, float],
+        cand: Any,
+        blending_certificate: Optional[Any] = None,
+        policy: Optional[Any] = None,
+        max_feed_allowed: Optional[float] = None,
+    ) -> float:
+        pol = policy or self.policy
+        du = getattr(cand, "delta_u", cand) if not isinstance(cand, dict) else cand
+        u_hold = {
+            "HT_FEED_SP": float(ss_hold.get("HT_FEED_SP", ss_hold.get("HT_F9", self.margin_model.rp.feed_ref))),
+            "HT_TIN_SP": float(ss_hold.get("HT_TIN_SP", ss_hold.get("HT_T_IN", self.margin_model.rp.t_in_ref))),
+            "HT_P_SP": float(ss_hold.get("HT_P_SP", ss_hold.get("HT_P_IN", self.margin_model.rp.p_ref))),
+            "HT_GOR_SP": float(ss_hold.get("HT_GOR_SP", ss_hold.get("HT_GOR", 360.0))),
+            "AVT_T55_SP": float(ss_hold.get("AVT_T55_SP", ss_hold.get("AVT_T55", 381.7))),
+        }
+        u_cand = {k: u_hold[k] + du.get(k, 0.0) for k in u_hold}
+
+        # 1. Расчет базовой маржи
+        breakdown = self.margin_model.evaluate(ss, ss_hold, u_cand, u_hold)
+        raw_margin = breakdown.total
+
+        # 2. Ограничение маржи по балансу сырья буфера АВТ-ГО
+        f9 = float(ss.get("HT_FEED_SP", ss.get("HT_F9", self.margin_model.rp.feed_ref)))
+        if max_feed_allowed is not None and f9 > max_feed_allowed:
+            excess_feed = f9 - max_feed_allowed
+            margin_spread = self.margin_model.p.price_godt - self.margin_model.p.price_straight_run
+            loss = margin_spread * self.margin_model.p.y_liq * excess_feed
+            raw_margin -= max(0.0, loss)
+
+        # 3. Вклад цен блендинга
+        blend_utility = 0.0
+        if blending_certificate is not None:
+            blend_utility = float(getattr(blending_certificate, "utility_delta_rub_h", 0.0))
+
+        # 4. Штраф за износ катализатора из политики (catalyst_wear_rub_h_per_c)
+        cat_rate = getattr(pol, "catalyst_wear_rub_h_per_c", 450.0) if pol else 450.0
+        tin = float(u_cand.get("HT_TIN_SP", ss.get("HT_T_IN", self.margin_model.rp.t_in_ref)))
+        tin_hold = float(u_hold.get("HT_TIN_SP", ss_hold.get("HT_T_IN", self.margin_model.rp.t_in_ref)))
+        t_bed = float(ss.get("HT_BED_MEAN", ss.get("HT_T_OUT", tin)))
+        t_bed_hold = float(ss_hold.get("HT_BED_MEAN", ss_hold.get("HT_T_OUT", tin_hold)))
+        delta_tbed = max(0.0, t_bed - t_bed_hold)
+        # Корректировка износа катализатора с учетом параметра политики
+        cat_adjustment = (cat_rate - self.margin_model.p.catalyst_rub_h_per_degC) * delta_tbed
+
+        # 5. Стоимость перемещения исполнительных механизмов (move_cost)
+        move_cost_rate = getattr(pol, "move_cost_rub_h_per_unit_norm", 0.0) if pol else 0.0
+        norm_step = math.sqrt(sum(v ** 2 for v in u_cand.values())) if u_cand else 0.0
+        move_cost = move_cost_rate * norm_step
+
+        net_utility = raw_margin + blend_utility - cat_adjustment - move_cost
+        return round(float(net_utility), 2)
