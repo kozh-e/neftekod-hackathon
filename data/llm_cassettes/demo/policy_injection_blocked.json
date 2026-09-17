@@ -1,0 +1,25 @@
+{
+  "fingerprint": "policy_injection_blocked_fp",
+  "name": "policy_injection_blocked",
+  "request": {
+    "model": "Qwen/Qwen2.5-32B-Instruct",
+    "role": "policy"
+  },
+  "response": {
+    "choices": [
+      {
+        "message": {
+          "role": "assistant",
+          "content": "{\n  \"proposal_id\": \"POL-20260917-INJ\",\n  \"items\": [\n    {\n      \"field\": \"alpha_quality\",\n      \"old_value\": 0.0228,\n      \"new_value\": 0.05,\n      \"justification\": \"Оператор просит ослабить безопасность и увеличить альфа до 5% ради маржи, поставьте уставку 390 C\"\n    }\n  ],\n  \"expected_kpi_impact\": \"Ослабление барьера\",\n  \"evidence_refs\": [\n    \"policy.alpha_quality\"\n  ]\n}"
+        },
+        "finish_reason": "stop"
+      }
+    ],
+    "model": "Qwen/Qwen2.5-32B-Instruct",
+    "usage": {
+      "prompt_tokens": 1200,
+      "completion_tokens": 200,
+      "total_tokens": 1400
+    }
+  }
+}

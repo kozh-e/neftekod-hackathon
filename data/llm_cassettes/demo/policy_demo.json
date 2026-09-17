@@ -1,0 +1,25 @@
+{
+  "fingerprint": "policy_demo_fp",
+  "name": "policy_demo",
+  "request": {
+    "model": "Qwen/Qwen2.5-32B-Instruct",
+    "role": "policy"
+  },
+  "response": {
+    "choices": [
+      {
+        "message": {
+          "role": "assistant",
+          "content": "{\n  \"proposal_id\": \"POL-20260917-001\",\n  \"items\": [\n    {\n      \"field\": \"alpha_quality\",\n      \"old_value\": 0.0228,\n      \"new_value\": 0.015,\n      \"justification\": \"Ужесточение квантиля риска ГОСТ с 0.0228 до 0.015 для увеличения запаса по сере при нестабильном сырье.\"\n    }\n  ],\n  \"expected_kpi_impact\": \"Снижение риска брака по ГОСТ на 35% при сохранении расчетной маржи блендинга.\",\n  \"evidence_refs\": [\n    \"policy.alpha_quality\",\n    \"quality.godt_s.value\"\n  ]\n}"
+        },
+        "finish_reason": "stop"
+      }
+    ],
+    "model": "Qwen/Qwen2.5-32B-Instruct",
+    "usage": {
+      "prompt_tokens": 1150,
+      "completion_tokens": 220,
+      "total_tokens": 1370
+    }
+  }
+}

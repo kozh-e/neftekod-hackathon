@@ -1,0 +1,25 @@
+{
+  "fingerprint": "briefing_demo_fp",
+  "name": "briefing_demo",
+  "request": {
+    "model": "Qwen/Qwen2.5-32B-Instruct",
+    "role": "briefing"
+  },
+  "response": {
+    "choices": [
+      {
+        "message": {
+          "role": "assistant",
+          "content": "{\n  \"briefing_id\": \"SHF-20260917-001\",\n  \"shift_period\": \"Дневная смена 08:00 - 20:00\",\n  \"summary_text\": \"Технологический комплекс ЭЛОУ-АВТ-6 -> 24-2000 -> блендинг отработал смену стабильно. Выполнен выход на режим оптимизации маржи.\",\n  \"status_counts\": {\n    \"SUCCESS\": 40,\n    \"DEADBAND\": 10,\n    \"REFUSAL\": 0\n  },\n  \"quality_assessment\": \"Качество гидрогенизата ГО ДТ по сере и вспышке в норме ГОСТ 32511. Запаздывание пробы ЛИМС находится в пределах регламента.\",\n  \"safety_assessment\": \"Запасы до барьеров ПАЗ выдержаны: перевал печи П-3 AVT_T55 и перепад реактора Р-202 HT_P8 не превышали критических порогов.\",\n  \"open_concerns\": [\n    \"Контролировать динамику старения катализатора при повышении температуры сырья\"\n  ],\n  \"incoming_recommendations\": [\n    \"Сохранять текущий режим циркуляции ВСГ и отобрать пробу ЛИМС в 20:00\",\n    \"Следить за перепадом давления колонны К-10\"\n  ],\n  \"evidence_refs\": [\n    \"status.total_cycles\",\n    \"status.success_cycles\",\n    \"status.deadband_cycles\",\n    \"quality.godt_s.value\",\n    \"equipment.avt_t55.measured\"\n  ]\n}"
+        },
+        "finish_reason": "stop"
+      }
+    ],
+    "model": "Qwen/Qwen2.5-32B-Instruct",
+    "usage": {
+      "prompt_tokens": 1250,
+      "completion_tokens": 320,
+      "total_tokens": 1570
+    }
+  }
+}

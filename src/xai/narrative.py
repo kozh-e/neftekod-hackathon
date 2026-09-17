@@ -1,3 +1,12 @@
+from __future__ import annotations
+
+from src.xai.card import (
+    DecisionCard,
+    build_decision_card,
+    TZ_REFUSAL_DATA,
+    TZ_REFUSAL_NO_SAFE_ACTION,
+    TZ_REFUSAL_TIMEOUT,
+)
 """Модуль генерации объяснимого ИИ (Explainable AI / XAI).
 
 Формирует детерминированный диспетчерский отчет на профессиональном
@@ -11,8 +20,6 @@
 - Допущения модели (TwinParams.assumptions());
 - Рецепт блендинга (доли, дозировки, активные ограничения).
 """
-
-from __future__ import annotations
 
 import datetime
 from typing import Any, Dict, List, Optional

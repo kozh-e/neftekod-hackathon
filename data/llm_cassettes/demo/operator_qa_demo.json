@@ -1,0 +1,25 @@
+{
+  "fingerprint": "operator_qa_demo_fp",
+  "name": "operator_qa_demo",
+  "request": {
+    "model": "Qwen/Qwen2.5-32B-Instruct",
+    "role": "operator_qa"
+  },
+  "response": {
+    "choices": [
+      {
+        "message": {
+          "role": "assistant",
+          "content": "{\n  \"question\": \"Почему не поднимается загрузка сырья?\",\n  \"direct_answer\": \"Увеличение расхода сырья заблокировано из-за приближения температуры перевала печи П-3 AVT_T55 к защитному барьеру безопасности.\",\n  \"technical_explanation\": \"При росте расхода сырья требуется дополнительный подвод тепла, что вызовет нагрев змеевика печи с риском закоксовывания труб выше порога 386.4 °C. Система удерживает режим в предохранительной зоне.\",\n  \"active_constraints_involved\": [\n    \"FURNACE.COT_MAX\",\n    \"MV.HT_FEED_SP.MAX\"\n  ],\n  \"evidence_refs\": [\n    \"equipment.avt_t55.measured\",\n    \"policy.alpha_equipment\"\n  ],\n  \"operator_guidance\": \"Не пытаться форсировать подачу сырья вручную. Проверить распределение тепловой нагрузки по горелкам печи П-3 и чистоту фильтров.\"\n}"
+        },
+        "finish_reason": "stop"
+      }
+    ],
+    "model": "Qwen/Qwen2.5-32B-Instruct",
+    "usage": {
+      "prompt_tokens": 1100,
+      "completion_tokens": 260,
+      "total_tokens": 1360
+    }
+  }
+}

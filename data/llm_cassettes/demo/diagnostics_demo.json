@@ -1,0 +1,25 @@
+{
+  "fingerprint": "diagnostics_demo_fp",
+  "name": "diagnostics_demo",
+  "request": {
+    "model": "Qwen/Qwen2.5-32B-Instruct",
+    "role": "diagnostics"
+  },
+  "response": {
+    "choices": [
+      {
+        "message": {
+          "role": "assistant",
+          "content": "{\n  \"finding_id\": \"FND-20260917-001\",\n  \"category\": \"LIMS_PAK_CONFLICT\",\n  \"severity\": \"WARNING\",\n  \"title\": \"Расхождение лабораторного анализа ЛИМС и поточного анализатора ПАК HT_Q21\",\n  \"root_cause\": \"Разрыв во времени между отбором пробы и публикацией результата вызвал рассогласование калибровки поточного анализатора с фактической серой.\",\n  \"evidence_refs\": [\n    \"quality.godt_s.value\",\n    \"quality.godt_s.sigma_calib\",\n    \"quality.godt_s.calib_age_h\"\n  ],\n  \"checks_recommended\": [\n    \"Проверить статус пробоотборной линии поточного анализатора HT_Q21\",\n    \"Выполнить внеочередной экспресс-анализ серы в заводской лаборатории\",\n    \"Проверить калибровочный дрейф скалярного фильтра Калмана\"\n  ],\n  \"safety_risk_assessment\": \"Угрозы ПАЗ оборудования нет. Риск по ГОСТ 32511 компенсирован переводом оптимизатора в режим CORRECTIVE_ONLY с запретом наращивания сырья.\"\n}"
+        },
+        "finish_reason": "stop"
+      }
+    ],
+    "model": "Qwen/Qwen2.5-32B-Instruct",
+    "usage": {
+      "prompt_tokens": 1400,
+      "completion_tokens": 280,
+      "total_tokens": 1680
+    }
+  }
+}
