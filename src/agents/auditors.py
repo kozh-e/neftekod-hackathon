@@ -57,6 +57,7 @@ class ReliabilityAgent:
         cls,
         cand: ControlCandidate,
         hold_cand: Optional[ControlCandidate] = None,
+        tags: Optional[Mapping[str, float]] = None,
     ) -> SafetyAuditReport:
         """
         Аудит кандидата: оценка динамических траекторий, установившегося режима и барьерных штрафов.
@@ -65,6 +66,40 @@ class ReliabilityAgent:
         limit_margins: Dict[str, float] = {}
         violation_reasons: List[str] = []
         penalty = 0.0
+
+        # Проверка технологических предусловий печи П-3 (ADR / T1)
+        f31_curr = None
+        p52_curr = None
+        if tags:
+            f31_curr = tags.get("AVT_F31")
+            p52_curr = tags.get("AVT_P52")
+        if f31_curr is None:
+            f31_curr = cand.expected_f31
+        if p52_curr is None:
+            p52_curr = cand.expected_p52
+
+        furnace_precond_broken = False
+        if f31_curr is not None and f31_curr < cls.MIN_F31:
+            furnace_precond_broken = True
+        if p52_curr is not None and (p52_curr > cls.MAX_P52 or p52_curr < 0.10):
+            furnace_precond_broken = True
+
+        moves_furnace = abs(cand.delta_u.get("AVT_T55_SP", 0.0)) > 1e-4
+        if furnace_precond_broken:
+            warn_msg = (
+                f"ПРЕДУПРЕЖДЕНИЕ ПЕЧИ (T1/ADR): Нарушены технологические предусловия печи П-3 "
+                f"(AVT_F31={f31_curr} т/ч < {cls.MIN_F31} т/ч или AVT_P52={p52_curr} кгс/см² вне нормы). "
+                f"Ходы по AVT_T55_SP строго запрещены!"
+            )
+            if moves_furnace:
+                violated_limits.extend(["AVT_F31", "AVT_P52"])
+                violation_reasons.append(warn_msg)
+            else:
+                # Фиксируем предупреждение в отчете аудита без наложения вето на гидроочистку
+                limit_margins["AVT_F31"] = (f31_curr - cls.MIN_F31) if f31_curr is not None else -1.0
+                limit_margins["AVT_P52"] = (cls.MAX_P52 - p52_curr) if p52_curr is not None else -1.0
+                if cand.is_hold:
+                    violation_reasons.append(warn_msg)
 
         hold_traj = hold_cand.trajectory if hold_cand else {}
         ss = cand.steady_state
@@ -304,10 +339,31 @@ class QualityAgent:
                 props_source={"T95": f"прогноз + {z_eff:g}σ ({offset_t95:.2f} °C)"},
             )
             kerosene_tank = base_tanks.get("Kerosene")
+            kero_stock = kerosene_tank.stock_t if kerosene_tank else 800.0
+            if tags and "TANK_KEROSENE_MASS" in tags:
+                kero_stock = float(tags["TANK_KEROSENE_MASS"])
+
+            if tags and "TANK_GODT_CFPP" in tags:
+                fc_props["CFPP"] = float(tags["TANK_GODT_CFPP"])
+
+            c_godt = BlendComponent(
+                name="ГО ДТ (резервуар)",
+                price_rub_t=60000.0,
+                stock_t=godt_tank.stock_t + flow_tph * horizon_h,
+                v_min=0.50,
+                v_max=1.0,
+                s_ppm=fc_props["S_ppm"],
+                d15=fc_props["D15"],
+                flash_c=fc_props["Flash"],
+                cfpp_c=fc_props["CFPP"],
+                t95_c=fc_props["T95"] + offset_t95,
+                cn=fc_props["CN"],
+                props_source={"T95": f"прогноз + {z_eff:g}σ ({offset_t95:.2f} °C)"},
+            )
             c_kero = BlendComponent(
                 name="Керосин (гидроочищенный)",
                 price_rub_t=85000.0,
-                stock_t=kerosene_tank.stock_t if kerosene_tank else 800.0,
+                stock_t=kero_stock,
                 v_min=0.0,
                 v_max=0.20,
                 s_ppm=2.0,
@@ -319,10 +375,14 @@ class QualityAgent:
                 props_source={},
             )
             gasoil_tank = base_tanks.get("Gasoil")
+            gasoil_stock = gasoil_tank.stock_t if gasoil_tank else 1500.0
+            if tags and "TANK_GASOIL_MASS" in tags:
+                gasoil_stock = float(tags["TANK_GASOIL_MASS"])
+
             c_gasoil = BlendComponent(
                 name="Газойль (гидроочищенный)",
                 price_rub_t=50000.0,
-                stock_t=gasoil_tank.stock_t if gasoil_tank else 1500.0,
+                stock_t=gasoil_stock,
                 v_min=0.0,
                 v_max=0.20,
                 s_ppm=8.0,
@@ -358,8 +418,20 @@ class QualityAgent:
                     f"запас T95 товарного топлива до 360 °C с учетом {z_eff:g}σ ({offset_t95:.2f} °C): {t95_margin:.2f} °C"
                 )
             if not blend_res.is_feasible:
-                violated_limits.append("BLEND_FEASIBILITY")
-                violation_reasons.append(f"GOST_VETO_BLEND_INFEASIBLE: {blend_res.infeasibility_reason}")
+                is_pure_park_deficit = (
+                    kero_stock <= 0.0
+                    and (fc_props["T95"] + offset_t95) <= (T95_PRODUCT_MAX.hi or 360.0) + 1e-4
+                    and fc_props.get("CFPP", -6.0) <= 0.0 + 1e-4
+                    and fc_props.get("S_ppm", 8.0) <= 10.0 + 1e-4
+                )
+                if is_pure_park_deficit:
+                    requirements.append(
+                        f"ПРЕДУПРЕЖДЕНИЕ БЛЕНДИНГА (T2): дефицит компонентов смеси в парке ({blend_res.error_message}). "
+                        f"Ходы гидроочистки продолжают оцениваться."
+                    )
+                else:
+                    violated_limits.append("BLEND_FEASIBILITY")
+                    violation_reasons.append(f"GOST_VETO_BLEND_INFEASIBLE: {blend_res.infeasibility_reason}")
 
         else:
             # Скалярный путь старых кандидатов
@@ -401,12 +473,13 @@ def node_reliability_agent(state: MasGraphState) -> Dict[str, Any]:
     """Узел LangGraph: аудит безопасности оборудования Агентом Надежности."""
     candidates = state.get("candidates", [])
     hold_cand = next((c for c in candidates if c.is_hold), None)
+    tags = state.get("tags")
     vetoed: List[str] = []
     penalties: Dict[str, float] = {}
     reports: List[SafetyAuditReport] = []
 
     for cand in candidates:
-        report = ReliabilityAgent.audit(cand, hold_cand=hold_cand)
+        report = ReliabilityAgent.audit(cand, hold_cand=hold_cand, tags=tags)
         reports.append(report)
         if report.is_vetoed:
             vetoed.append(cand.candidate_id)

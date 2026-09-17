@@ -8,8 +8,8 @@
 
 from __future__ import annotations
 
-from typing import Dict, Any
-from src.agents.state import MasGraphState, FinalRecommendation
+from typing import Any, Dict
+from src.agents.state_legacy import FinalRecommendation, MasGraphState
 
 # Обязательный дословный регламентный текст отказа согласно Callout Box 4 ТЗ
 REFUSAL_VERBATIM_TEXT: str = (
@@ -23,22 +23,27 @@ def node_safe_hold(state: MasGraphState) -> Dict[str, Any]:
     """
     Узел формирования мотивированного отказа (Graceful Refusal / Safe Hold).
     
-    Переводит систему в режим безизменений: Delta u = {} (уставки фиксируются),
+    Переводит систему в режим без изменений: Delta u = {} (уставки фиксируются),
     предотвращая интегральное насыщение и разнос технологического режима.
     Если рекомендация уже сформирована арбитражем (напр. SAFE_HOLD_EMPTY_ADMISSIBLE),
     она сохраняется вместе с перечнем нарушенных пределов.
     """
     existing_rec = state.get("final_recommendation")
-    if existing_rec is not None and existing_rec.status.startswith("SAFE_HOLD"):
+    if existing_rec is not None and (
+        existing_rec.status.startswith("SAFE_HOLD") or existing_rec.status == "REFUSAL_DATA"
+    ):
         if not getattr(existing_rec, "markdown_report", None):
             existing_rec.markdown_report = f"### 🚨 Режим БЕЗОПАСНОГО УДЕРЖАНИЯ (Safe Hold)\n\n{existing_rec.explanation}"
         return {"final_recommendation": existing_rec}
 
+    dq = state.get("data_quality")
+    status_val = "REFUSAL_DATA" if dq is not None and dq.status_code == "REFUSAL_DATA" else "SAFE_HOLD"
+
     final_rec = FinalRecommendation(
-        status="SAFE_HOLD",
+        status=status_val,
         explanation=REFUSAL_VERBATIM_TEXT,
         recommended_delta_u={},
-        markdown_report=f"### 🚨 Режим БЕЗОПАСНОГО УДЕРЖАНИЯ (Safe Hold)\n\n{REFUSAL_VERBATIM_TEXT}"
+        markdown_report=f"### 🚨 Режим БЕЗОПАСНОГО УДЕРЖАНИЯ ({status_val})\n\n{REFUSAL_VERBATIM_TEXT}",
     )
-    
+
     return {"final_recommendation": final_rec}
