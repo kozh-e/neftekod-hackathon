@@ -258,6 +258,7 @@ NOMINAL_OPERATING_POINT: dict[str, float] = {
     "AVT_DIESEL_TPH": 209.9,
     "AVT_D10": 847.2,
     "AVT_P52": 0.045,
+    "AVT_F31": 540.7,
     "LIMS_HT_S": 8.6,
     "LIMS_HT_FLASH": 68.0,
     "LIMS_HT_D15": 836.1,

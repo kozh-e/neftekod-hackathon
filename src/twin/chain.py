@@ -148,6 +148,8 @@ class FullChainTwin:
         """
         norm_tags, norm_warnings = normalize_tags(tags)
         filled, fill_warnings = fill_from_nominal(norm_tags, REQUIRED_TAGS)
+        if "lims_age_hours" in tags:
+            filled["lims_age_hours"] = tags["lims_age_hours"]
         warnings = norm_warnings + fill_warnings
 
         # Фиксируем возмущения
@@ -247,7 +249,7 @@ class FullChainTwin:
             "HT_DP_KPA": rx_ss.dp_kpa + self.biases.get("HT_DP_KPA", 0.0),
             "HT_GOR": u_gor,
             "HT_VSG": rx_ss.vsg_nm3h,
-            "HT_S_PRODUCT": rx_ss.s_out_ppm + self.biases.get("HT_S_PRODUCT", 0.0),
+            "HT_S_PRODUCT": max(0.01, rx_ss.s_out_ppm + self.biases.get("HT_S_PRODUCT", 0.0)),
             "HT_FLASH": flash_ss + self.biases.get("HT_FLASH", 0.0),
             "HT_D15_PRODUCT": prod_ss["HT_D15_PRODUCT"] + self.biases.get("HT_D15_PRODUCT", 0.0),
             "HT_T95_PRODUCT": prod_ss["HT_T95_PRODUCT"] + self.biases.get("HT_T95_PRODUCT", 0.0),
@@ -325,7 +327,7 @@ class FullChainTwin:
             "HT_DP_KPA": dp + self.biases.get("HT_DP_KPA", 0.0),
             "HT_GOR": u_gor,
             "HT_VSG": rx_out.vsg_nm3h,
-            "HT_S_PRODUCT": s_product + self.biases.get("HT_S_PRODUCT", 0.0),
+            "HT_S_PRODUCT": max(0.01, s_product + self.biases.get("HT_S_PRODUCT", 0.0)),
             "HT_FLASH": flash + self.biases.get("HT_FLASH", 0.0),
             "HT_D15_PRODUCT": d15 + self.biases.get("HT_D15_PRODUCT", 0.0),
             "HT_T95_PRODUCT": t95 + self.biases.get("HT_T95_PRODUCT", 0.0),
@@ -380,6 +382,15 @@ class FullChainTwin:
             for src in sources:
                 val = measured.get(src)
                 if val is not None and not (math.isnan(val) or math.isinf(val)):
+                    # Если источник LIMS_HT_S, но анализ без метки отбора, устарел (> 16 ч)
+                    # или ПАК сигнализирует о нарушении (>= 9.6 мг/кг), не используем LIMS для снятия тревоги (E4, E6)
+                    if src == "LIMS_HT_S":
+                        lims_has_ts = any(k in measured for k in ("lims_sample_timestamp", "lims_timestamp", "lims_age_hours"))
+                        lims_age = float(measured.get("lims_age_hours", 0.0))
+                        q21_val = measured.get("HT_Q21")
+                        if q21_val is not None and not (math.isnan(q21_val) or math.isinf(q21_val)):
+                            if (not lims_has_ts) or lims_age > 16.0 or (q21_val >= 9.6 and val < q21_val):
+                                continue
                     # Q20 переводится в базис ЛИМС
                     if src == "HT_Q20":
                         val = val * self.params.feed.q20_to_lims
@@ -387,8 +398,42 @@ class FullChainTwin:
                     self.biases[target_key] = val - model_base
                     break
 
+        # Ассимиляция измеренного AVT_T55 через FOPDT
+        t55_meas = measured.get("AVT_T55")
+        if t55_meas is not None and not (math.isnan(t55_meas) or math.isinf(t55_meas)):
+            t55_f = float(t55_meas)
+            self._disturbances["AVT_T55"] = t55_f
+            self.fopdt_t55.reset(t55_f)
+
         return dict(self.biases)
 
     def clone(self) -> FullChainTwin:
         """Создает изолированную глубокую копию двойника."""
         return copy.deepcopy(self)
+
+    def with_params(self, theta: Mapping[str, Any]) -> FullChainTwin:
+        """
+        Создает копию двойника с обновленными параметрами theta (для ансамбля и анализа чувствительности).
+        """
+        twin_copy = self.clone()
+        for k, v in theta.items():
+            if hasattr(twin_copy.params.feed, k):
+                setattr(twin_copy.params.feed, k, v)
+            elif hasattr(twin_copy.params.reactor, k):
+                setattr(twin_copy.params.reactor, k, v)
+            elif hasattr(twin_copy.params.dynamics, k):
+                setattr(twin_copy.params.dynamics, k, v)
+            elif hasattr(twin_copy.params.stabilizer, k):
+                setattr(twin_copy.params.stabilizer, k, v)
+            elif hasattr(twin_copy.params.product, k):
+                setattr(twin_copy.params.product, k, v)
+            elif hasattr(twin_copy.params.economics, k):
+                setattr(twin_copy.params.economics, k, v)
+            elif hasattr(twin_copy.params, k):
+                setattr(twin_copy.params, k, v)
+
+        # Переинициализация подмоделей с новыми параметрами
+        twin_copy.feed_link = FeedLink(twin_copy.params.feed, dt_min=twin_copy.dt_min)
+        twin_copy.kinetics = ReactorKineticsCalculator(twin_copy.params.reactor)
+        twin_copy.stabilizer = StabilizerColumnCalculator(twin_copy.params.stabilizer)
+        return twin_copy
