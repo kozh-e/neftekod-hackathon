@@ -5,6 +5,7 @@
 - Входные данные (телеметрия/теги, возраст LIMS);
 - Предупреждения и индекс достоверности (confidence);
 - Оценки аудиторов и перечень кандидатов;
+- Парето-фронт допустимых кандидатов и компромиссная точка;
 - Итоговая рекомендация и оптимальная рецептура блендинга.
 """
 
@@ -91,6 +92,9 @@ def append_decision(
         elif isinstance(blend_recipe, dict):
             blend_serialized = blend_recipe
 
+    pareto = result.get("pareto")
+    pareto_serialized = pareto.model_dump(mode="json") if hasattr(pareto, "model_dump") else pareto
+
     record = {
         "timestamp": datetime.datetime.now(datetime.timezone.utc).isoformat(),
         "session_id": inputs.get("session_id") or result.get("session_id"),
@@ -100,6 +104,7 @@ def append_decision(
         "candidates": cands_serialized,
         "audit_reports": audits_serialized,
         "alternatives": result.get("alternatives", []),
+        "pareto": pareto_serialized,
         "final_recommendation": rec_serialized,
         "blending_recipe": blend_serialized,
     }

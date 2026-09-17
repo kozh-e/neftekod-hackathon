@@ -1,7 +1,8 @@
 """Модуль связи технологических установок ЭЛОУ-АВТ-6 -> 24-2000 (FeedLink).
 
 Реализует передачу качества дизельных фракций с АВТ на установку гидроочистки (ADR-1):
-- Уравнения зависимости T95, серы и плотности сырья от отбора фракции F30;
+- Отклик отборов AVT_F30/AVT_F32 на отклонение температуры печи AVT_T55 от исходного режима;
+- Уравнения зависимости T95, серы и плотности сырья от отбора фракции F30 (официальная ВАК EBP);
 - Транспортное запаздывание theta и динамическое смешение tau_mix в сырьевом парке (режимы buffered / hot);
 - Расчет суммарной выработки дизельного дистиллята для материального баланса.
 """
@@ -47,13 +48,15 @@ class FeedLink:
 
         self.reset(self.p.f30_ref, self.p.f32_ref, 0.0)
 
-    def _calculate_instantaneous(self, f30: float, f32: float, tfurn_dev: float) -> tuple[float, float, float, float]:
-        """Статический расчет мгновенного качества потока на выходе АВТ."""
-        # 1. Суммарная выработка дизеля АВТ
-        f_avt = f30 + f32 + self.p.Y_T * tfurn_dev
+    def _calculate_instantaneous(self, f30: float, f32: float, t55_dev: float) -> tuple[float, float, float, float]:
+        """Статический расчет мгновенного качества потока на выходе АВТ при отклонении печи t55_dev, °C."""
+        # 1. Отборы дизельных фракций с учетом отклика на температуру печи (т/ч, реестр)
+        f30_eff = f30 + self.p.dF30_dT55 * t55_dev
+        f32_eff = f32 + self.p.dF32_dT55 * t55_dev
+        f_avt = f30_eff + f32_eff
 
         # 2. T95 сырья с чувствительностью из официальной формулы ВАК AVT6:240-350:EBP (2.66463)
-        t95_in = self.p.t95_ref + self.p.dT95_dF30 * (f30 - self.p.f30_ref) + self.p.c_T95_T * tfurn_dev
+        t95_in = self.p.t95_ref + self.p.dT95_dF30 * (f30_eff - self.p.f30_ref)
 
         # 3. Сера сырья (прирост трудноудаляемых соединений при утяжелении фракции)
         s_in = self.p.s_ref * (1.0 + self.p.s_t95 * (t95_in - self.p.t95_ref))
@@ -64,9 +67,9 @@ class FeedLink:
 
         return f_avt, t95_in, s_in, d15_in
 
-    def reset(self, f30: float, f32: float, tfurn_dev: float = 0.0) -> None:
+    def reset(self, f30: float, f32: float, t55_dev: float = 0.0) -> None:
         """Сброс состояния фильтров к равновесному режиму для заданных параметров."""
-        f_avt, t95_ss, s_ss, d15_ss = self._calculate_instantaneous(f30, f32, tfurn_dev)
+        f_avt, t95_ss, s_ss, d15_ss = self._calculate_instantaneous(f30, f32, t55_dev)
 
         self._buf_t95.clear()
         self._buf_s.clear()
@@ -82,9 +85,9 @@ class FeedLink:
         self._s_mix = s_ss
         self._d15_mix = d15_ss
 
-    def steady_state(self, f30: float, f32: float, tfurn_dev: float = 0.0) -> FeedState:
+    def steady_state(self, f30: float, f32: float, t55_dev: float = 0.0) -> FeedState:
         """Расчет установившегося состояния без учета динамических переходов."""
-        f_avt, t95_ss, s_ss, d15_ss = self._calculate_instantaneous(f30, f32, tfurn_dev)
+        f_avt, t95_ss, s_ss, d15_ss = self._calculate_instantaneous(f30, f32, t55_dev)
         return FeedState(
             avt_diesel_tph=f_avt,
             t95_feed_c=t95_ss,
@@ -92,9 +95,9 @@ class FeedLink:
             d15_feed=d15_ss,
         )
 
-    def step(self, f30: float, f32: float, tfurn_dev: float = 0.0) -> FeedState:
+    def step(self, f30: float, f32: float, t55_dev: float = 0.0) -> FeedState:
         """Один шаг дискретной симуляции (dt_min)."""
-        f_avt, t95_in, s_in, d15_in = self._calculate_instantaneous(f30, f32, tfurn_dev)
+        f_avt, t95_in, s_in, d15_in = self._calculate_instantaneous(f30, f32, t55_dev)
 
         # 1. Помещаем новое значение в буфер чистого запаздывания
         self._buf_t95.append(t95_in)

@@ -5,14 +5,31 @@
 2. Экспоненциальное затухание (Bias Decay) с периодом полураспада 12 часов.
 3. Безударный перенос (Bumpless Transfer): фильтрация первого порядка (tau = 30 мин),
    исключающая скачкообразные возмущения в контурах управления при вводе анализа.
-4. Верхняя доверительная граница (Upper Confidence Bound, UCB +1.96*sigma) для наихудшего
+4. Верхняя доверительная граница (Upper Confidence Bound, UCB + z*sigma) для наихудшего
    сценария по сере, защищающая от выпуска бракованной продукции Евро-5.
+
+Вето Агента Качества в графе использует не этот компенсатор, а stat_offset() (src/agents/constraints.py)
+с константами ADR-12 из src/agents/limits.py; значения по умолчанию здесь согласованы с ними.
 """
 
 from __future__ import annotations
 
 import math
-from typing import Tuple
+from typing import Any, Mapping, Optional, Tuple
+
+from src.agents.limits import QUALITY_Z, SIGMA_S0_PPM
+
+
+def lims_age_from_state(state: Mapping[str, Any]) -> float:
+    """Возраст анализов ЛИМС (ч) из состояния графа: raw_telemetry -> tags -> confidence."""
+    raw = state.get("raw_telemetry")
+    if raw is not None and hasattr(raw, "lims_age_hours"):
+        return float(raw.lims_age_hours)
+    tags: Optional[Mapping[str, Any]] = state.get("tags")
+    if tags and "lims_age_hours" in tags:
+        return float(tags["lims_age_hours"])
+    confidence = state.get("confidence") or {}
+    return float(confidence.get("lims_age_hours", 0.0))
 
 
 class LimsBiasCompensator:
@@ -26,14 +43,17 @@ class LimsBiasCompensator:
         dt_minutes: float = 10.0,
         tau_filter_minutes: float = 30.0,
         half_life_hours: float = 12.0,
-        base_sigma: float = 0.3
+        base_sigma: float = SIGMA_S0_PPM,
+        z: float = QUALITY_Z,
     ):
         """
         :param dt_minutes: Такт дискретизации системы (10.0 мин).
         :param tau_filter_minutes: Постоянная времени безударного фильтра (30.0 мин).
         :param half_life_hours: Период полураспада доверия к анализу LIMS (12.0 ч).
-        :param base_sigma: Базовая погрешность ВАК по сере (0.3 ppm).
+        :param base_sigma: Базовая погрешность прогноза серы (DATA, ADR-12).
+        :param z: Квантиль доверительной границы (tz:598: +2σ).
         """
+        self.z = z
         self.dt = dt_minutes
         self.tau_filter = tau_filter_minutes
         self.alpha_filter = math.exp(-self.dt / self.tau_filter)
@@ -95,8 +115,8 @@ class LimsBiasCompensator:
         uncertainty_multiplier = 1.0 + (max(0.0, minutes_since_last_lims) / (24.0 * 60.0))
         sigma_t = self.base_sigma * uncertainty_multiplier
 
-        # 5. Верхняя доверительная граница (95% односторонняя = +1.96 сигма)
-        upper_confidence_bound = corrected_value + 1.96 * sigma_t
+        # 5. Верхняя доверительная граница (+z сигма)
+        upper_confidence_bound = corrected_value + self.z * sigma_t
 
         return round(corrected_value, 3), round(upper_confidence_bound, 3)
 

@@ -34,7 +34,7 @@ MV_NAMES: Tuple[str, ...] = (
     "HT_TIN_SP",
     "HT_P_SP",
     "HT_GOR_SP",
-    "AVT_TFURN_DEV",
+    "AVT_T55_SP",
 )
 
 OUTPUTS: Tuple[str, ...] = (
@@ -120,8 +120,9 @@ class FullChainTwin:
             "HT_TIN_SP": self.params.reactor.t_in_ref,
             "HT_P_SP": self.params.reactor.p_ref,
             "HT_GOR_SP": self.params.reactor.gor_ref,
-            "AVT_TFURN_DEV": 0.0,
+            "AVT_T55_SP": 381.7,
         }
+        # AVT_T55 — измеренная температура печи в исходном режиме (база отклика отборов на уставку AVT_T55_SP)
         self._disturbances: Dict[str, float] = {
             "AVT_F30": self.params.feed.f30_ref,
             "AVT_F32": self.params.feed.f32_ref,
@@ -129,6 +130,7 @@ class FullChainTwin:
             "HT_P24": self.params.stabilizer.p24_ref,
             "HT_W7": self.params.stabilizer.w7_ref,
             "AVT_T55": 381.7,
+            "AVT_F31": self.params.economics.f31_ref,
         }
 
     @property
@@ -155,6 +157,7 @@ class FullChainTwin:
         self._disturbances["HT_P24"] = filled.get("HT_P24", self.params.stabilizer.p24_ref)
         self._disturbances["HT_W7"] = filled.get("HT_W7", self.params.stabilizer.w7_ref)
         self._disturbances["AVT_T55"] = filled.get("AVT_T55", 381.7)
+        self._disturbances["AVT_F31"] = filled.get("AVT_F31", self.params.economics.f31_ref)
 
         # Вычисляем u_current
         f9 = filled.get("HT_F9", self.params.reactor.feed_ref)
@@ -170,7 +173,7 @@ class FullChainTwin:
             "HT_TIN_SP": t6,
             "HT_P_SP": p13,
             "HT_GOR_SP": gor,
-            "AVT_TFURN_DEV": 0.0,
+            "AVT_T55_SP": self._disturbances["AVT_T55"],
         }
 
         # Обнуляем смещения перед расчетом чистой модели
@@ -190,7 +193,7 @@ class FullChainTwin:
         self.fopdt_t95.reset(ss["HT_T95_PRODUCT"])
         self.fopdt_cfpp.reset(ss["HT_CFPP_PRODUCT"])
         self.fopdt_cn.reset(ss["HT_CN_PRODUCT"])
-        self.fopdt_t55.reset(self._disturbances["AVT_T55"])
+        self.fopdt_t55.reset(self._u_current["AVT_T55_SP"])
 
         # Ассимилируем доступные измерения для вычисления bias
         self.assimilate(filled)
@@ -205,16 +208,16 @@ class FullChainTwin:
         u_tin = float(u_abs.get("HT_TIN_SP", self._u_current["HT_TIN_SP"]))
         u_p = float(u_abs.get("HT_P_SP", self._u_current["HT_P_SP"]))
         u_gor = float(u_abs.get("HT_GOR_SP", self._u_current["HT_GOR_SP"]))
-        u_tfurn = float(u_abs.get("AVT_TFURN_DEV", self._u_current["AVT_TFURN_DEV"]))
+        u_t55 = float(u_abs.get("AVT_T55_SP", self._u_current["AVT_T55_SP"]))
 
         f30 = self._disturbances.get("AVT_F30", self.params.feed.f30_ref)
         f32 = self._disturbances.get("AVT_F32", self.params.feed.f32_ref)
         f14 = self._disturbances.get("HT_F14", self.params.reactor.quench_ref)
         p24 = self._disturbances.get("HT_P24", self.params.stabilizer.p24_ref)
         w7 = self._disturbances.get("HT_W7", self.params.stabilizer.w7_ref)
-        t55 = self._disturbances.get("AVT_T55", 381.7)
+        t55_base = self._disturbances.get("AVT_T55", 381.7)
 
-        feed_ss = self.feed_link.steady_state(f30, f32, u_tfurn)
+        feed_ss = self.feed_link.steady_state(f30, f32, u_t55 - t55_base)
 
         rx_inp = ReactorInputs(
             t_in_c=u_tin,
@@ -250,7 +253,8 @@ class FullChainTwin:
             "HT_T95_PRODUCT": prod_ss["HT_T95_PRODUCT"] + self.biases.get("HT_T95_PRODUCT", 0.0),
             "HT_CFPP_PRODUCT": prod_ss["HT_CFPP_PRODUCT"],
             "HT_CN_PRODUCT": prod_ss["HT_CN_PRODUCT"],
-            "AVT_T55": t55,
+            "AVT_T55": u_t55,
+            "AVT_F31": self._disturbances.get("AVT_F31", self.params.economics.f31_ref),
         }
 
     def step(self, u_abs: Mapping[str, float]) -> Dict[str, float]:
@@ -261,17 +265,18 @@ class FullChainTwin:
         u_tin = float(u_abs.get("HT_TIN_SP", self._u_current["HT_TIN_SP"]))
         u_p = float(u_abs.get("HT_P_SP", self._u_current["HT_P_SP"]))
         u_gor = float(u_abs.get("HT_GOR_SP", self._u_current["HT_GOR_SP"]))
-        u_tfurn = float(u_abs.get("AVT_TFURN_DEV", self._u_current["AVT_TFURN_DEV"]))
+        u_t55 = float(u_abs.get("AVT_T55_SP", self._u_current["AVT_T55_SP"]))
 
         f30 = self._disturbances.get("AVT_F30", self.params.feed.f30_ref)
         f32 = self._disturbances.get("AVT_F32", self.params.feed.f32_ref)
         f14 = self._disturbances.get("HT_F14", self.params.reactor.quench_ref)
         p24 = self._disturbances.get("HT_P24", self.params.stabilizer.p24_ref)
         w7 = self._disturbances.get("HT_W7", self.params.stabilizer.w7_ref)
-        t55_meas = self._disturbances.get("AVT_T55", 381.7)
+        t55_base = self._disturbances.get("AVT_T55", 381.7)
 
-        # 1. Сырьевая связь
-        feed_dyn = self.feed_link.step(f30, f32, u_tfurn)
+        # 1. Печь АВТ (FOPDT) и сырьевая связь: отборы следуют за фактической температурой печи
+        t55 = self.fopdt_t55.step(u_t55)
+        feed_dyn = self.feed_link.step(f30, f32, t55 - t55_base)
 
         # 2. Температура входа
         t_in = self.fopdt_t_in.step(u_tin)
@@ -307,7 +312,6 @@ class FullChainTwin:
 
         # 6. Вспомогательные теги
         feed_to_avt = u_feed / max(feed_dyn.avt_diesel_tph, 1e-3)
-        t55 = self.fopdt_t55.step(t55_meas)
 
         # 7. Добавление смещений авторегрессии (biases)
         return {
@@ -359,7 +363,7 @@ class FullChainTwin:
         raw_s_feed = self.feed_link.steady_state(
             self._disturbances.get("AVT_F30", self.params.feed.f30_ref),
             self._disturbances.get("AVT_F32", self.params.feed.f32_ref),
-            0.0,
+            self._u_current["AVT_T55_SP"] - self._disturbances.get("AVT_T55", 381.7),
         ).s_feed_ppm
 
         model_vals = {

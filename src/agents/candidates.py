@@ -13,6 +13,8 @@ from dataclasses import dataclass
 import math
 from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple
 
+from src.agents.limits import T55_SP_BOUNDS
+
 
 @dataclass(frozen=True)
 class MVSpec:
@@ -32,13 +34,22 @@ DEFAULT_MVS: Tuple[MVSpec, ...] = (
     MVSpec("HT_TIN_SP", "HT_T6", "°C", step=2.0, max_move=3.0, lo=346.5, hi=380.5),
     MVSpec("HT_P_SP", "HT_P13", "МПа", step=0.03, max_move=0.05, lo=3.755, hi=4.009),
     MVSpec("HT_GOR_SP", "HT_GOR", "нм3/м3", step=15.0, max_move=30.0, lo=313.0, hi=490.0),
-    MVSpec("AVT_TFURN_DEV", None, "°C", step=2.0, max_move=3.0, lo=-5.0, hi=5.0, enabled=False),
+    MVSpec(
+        "AVT_T55_SP", "AVT_T55", "°C", step=2.0, max_move=3.0, lo=T55_SP_BOUNDS[0], hi=T55_SP_BOUNDS[1],
+        source="PDF «У» avt_furnace_outlet_temp_c = AVT_T55 (решение команды); границы 375 (tz:825) … ПАЗ 395 (tz:611), буфер 386.4 держит вето надежности",
+    ),
 )
 
 COUPLED_MOVES: Tuple[Dict[str, float], ...] = (
     {"HT_FEED_SP": +1.0, "HT_TIN_SP": +1.0},   # больше сырья + компенсация жёсткостью
     {"HT_FEED_SP": -1.0, "HT_TIN_SP": -1.0},   # разгрузка + экономия топлива
     {"HT_TIN_SP": -1.0, "HT_P_SP": +1.0},      # температуру заменяем давлением
+    # Охлаждение печи АВТ в паре с ходом гидроочистки (сценарий 4 ТЗ: безопасные компромиссы при вето нагрева)
+    {"AVT_T55_SP": -1.0, "HT_FEED_SP": +1.0},
+    {"AVT_T55_SP": -1.0, "HT_FEED_SP": -1.0},
+    {"AVT_T55_SP": -1.0, "HT_TIN_SP": +1.0},
+    {"AVT_T55_SP": -1.0, "HT_P_SP": +1.0},
+    {"AVT_T55_SP": -1.0, "HT_GOR_SP": +1.0},
 )
 
 

@@ -65,7 +65,7 @@ class TwinSessionStore:
                 curr = twin._u_current[k]
                 # Распознаем, передано ли приращение delta_u или абсолютная уставка
                 is_delta = False
-                if k in ("HT_TIN_SP", "HT_FEED_SP", "HT_GOR_SP") and abs(v_float) < 50.0:
+                if k in ("HT_TIN_SP", "HT_FEED_SP", "HT_GOR_SP", "AVT_T55_SP") and abs(v_float) < 50.0:
                     is_delta = True
                 elif k == "HT_P_SP" and abs(v_float) < 1.0:
                     is_delta = True

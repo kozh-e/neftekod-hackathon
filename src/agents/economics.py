@@ -6,7 +6,9 @@
 - compressor: затраты электроэнергии на компримирование циркулирующего ВСГ;
 - pressure: затраты на поддержание системного давления;
 - hydrogen: расход водорода КЦА;
-- catalyst: ускоренная термическая дезактивация катализатора при росте T_bed.
+- catalyst: ускоренная термическая дезактивация катализатора при росте T_bed;
+- avt_diesel: ценность прироста отбора прямогонного дизеля АВТ при изменении температуры печи AVT_T55
+  (оценка снизу спредом «прямогонный дизель − нефть», решение команды 7.2.2).
 """
 
 from __future__ import annotations
@@ -27,12 +29,14 @@ class MarginBreakdown:
     catalyst: float
     furnace_fuel_gas_nm3: float = 0.0
     furnace_mwh: float = 0.0
+    avt_diesel: float = 0.0
 
     @property
     def total(self) -> float:
         """Net Utility: выручка за вычетом всех операционных затрат относительно hold."""
         return (
             self.throughput
+            + self.avt_diesel
             - self.furnace
             - self.compressor
             - self.pressure
@@ -155,12 +159,15 @@ class MarginModel:
         furnace_kj_h = (f9 * 1000.0) * self.p.cp_oil * delta_tin
         furnace_mwh = furnace_kj_h / (3.6e6 * max(self.p.eta_furnace, 1e-4))
 
-        # Учет печей АВТ-6 (если активировано управление перегрузом печей АВТ)
-        delta_t_avt = float(u.get("AVT_TFURN_DEV", 0.0)) - float(u_hold.get("AVT_TFURN_DEV", 0.0))
-        if abs(delta_t_avt) > 1e-4:
-            f_avt = float(ss.get("AVT_F65", 924.5))
-            furnace_avt_kj_h = (f_avt * 1000.0) * self.p.cp_oil * delta_t_avt
+        # Печь П-3 АВТ-6: подогрев потока AVT_F31 на ΔT55 и ценность прироста отбора дизеля
+        avt_diesel = 0.0
+        delta_t55 = float(u.get("AVT_T55_SP", ss.get("AVT_T55", 0.0))) - float(u_hold.get("AVT_T55_SP", ss_hold.get("AVT_T55", 0.0)))
+        if abs(delta_t55) > 1e-4:
+            f31 = float(ss.get("AVT_F31", self.p.f31_ref))
+            furnace_avt_kj_h = (f31 * 1000.0) * self.p.cp_oil * delta_t55
             furnace_mwh += furnace_avt_kj_h / (3.6e6 * max(self.p.eta_furnace, 1e-4))
+            delta_diesel_tph = float(ss.get("AVT_DIESEL_TPH", 0.0)) - float(ss_hold.get("AVT_DIESEL_TPH", 0.0))
+            avt_diesel = self.p.crude_to_straight_spread * delta_diesel_tph
 
         furnace = self.p.fuel_rub_mwh * furnace_mwh
         furnace_gas_nm3 = self.p.calc_fuel_gas_consumption_nm3(furnace_mwh)
@@ -201,4 +208,5 @@ class MarginModel:
             catalyst=round(catalyst, 2),
             furnace_fuel_gas_nm3=round(furnace_gas_nm3, 2),
             furnace_mwh=round(furnace_mwh, 4),
+            avt_diesel=round(avt_diesel, 2),
         )

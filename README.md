@@ -47,7 +47,7 @@ uvicorn main:app --host 0.0.0.0 --port 8000 --reload
 streamlit run streamlit_app.py
 # (или streamlit run src/ui/app.py)
 
-# Запуск всех 104 модульных и интеграционных тестов
+# Запуск всех 144 модульных и интеграционных тестов
 pytest -v tests/
 
 # Запуск реплея 4 технологических сценариев (Норма, Риск качества, Отказ КИП, Конфликт ПАЗ)
@@ -55,6 +55,9 @@ python scripts/replay_scenarios.py
 
 # Офлайн-калибровка параметров цифрового двойника на архивах телеметрии
 python scripts/calibrate_twin.py
+
+# Оценка неопределенности прогнозов качества по методике ТЗ (σ серы/T95/вспышки, отклик печи, граница переочистки)
+python scripts/estimate_quality_uncertainty.py --data-dir "<папка с 242000_tags.csv, avt_tags.csv и ЛИМС>"
 ```
 
 ---
@@ -81,5 +84,5 @@ python scripts/calibrate_twin.py
 │   ├── agents/         # Мультиагентный граф (Optimization, Safety, Quality, Arbitration, Tank Blending)
 │   ├── xai/            # Генератор диспетчерских отчетов XAI на русском языке
 │   └── ui/             # Диспетчерская консоль оператора (Streamlit с блоком управления экономикой)
-└── tests/              # Набор из 104 тестов (unit, e2e, rollout, arbitration, blending, VAK, latency p95)
+└── tests/              # Набор из 144 тестов (unit, e2e, rollout, arbitration, blending, VAK, Pareto, сценарии ТЗ, latency p95)
 ```

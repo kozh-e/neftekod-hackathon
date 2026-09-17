@@ -5,6 +5,7 @@
 - Прогноз: hold против выбранного кандидата по S, Flash, T95, T_out (+30 мин, +3 ч, SS);
 - Физико-химическое обоснование официальных параметров (HT_FEED_SP, HT_TIN_SP, HT_P_SP, HT_GOR_SP);
 - Почему не альтернативы;
+- Парето-анализ (фронт, положение рекомендации, компромиссная точка);
 - Уверенность (Confidence Score);
 - Допущения модели (TwinParams.assumptions());
 - Рецепт блендинга (доли, дозировки, активные ограничения).
@@ -31,6 +32,8 @@ class XAIGenerator:
         alternatives: Optional[List[Dict[str, Any]]] = None,
         confidence: Optional[Dict[str, Any]] = None,
         blending_recipe: Optional[Any] = None,
+        pareto: Optional[Any] = None,
+        audit_reports: Optional[List[Any]] = None,
     ) -> str:
         """
         Формирует структурированный инженерный отчет для оператора установки.
@@ -66,7 +69,7 @@ class XAIGenerator:
             "HT_TIN_SP": ("HT_T6", 363.3),
             "HT_P_SP": ("HT_P13", 3.922),
             "HT_GOR_SP": ("HT_GOR", 360.0),
-            "AVT_TFURN_DEV": ("AVT_TFURN_DEV", 0.0),
+            "AVT_T55_SP": ("AVT_T55", 381.7),
         }
         actions = []
         for tag, delta in delta_u.items():
@@ -123,6 +126,16 @@ class XAIGenerator:
             rationale.append(
                 f"Коррекция соотношения ВСГ/сырье HT_GOR_SP на {d_g:+.1f} нм³/м³ стабилизирует фазовое состояние "
                 "газосырьевой смеси и предотвращает закоксовывание катализатора."
+            )
+
+        if "AVT_T55_SP" in delta_u:
+            d_t55 = delta_u["AVT_T55_SP"]
+            direction = "Повышение" if d_t55 > 0 else "Снижение"
+            rationale.append(
+                f"{direction} температуры на выходе печи П-3 (AVT_T55_SP) на {d_t55:+.1f} °C меняет отбор дизельных фракций "
+                "AVT_F30/AVT_F32 (отклик по архиву неустойчив между подпериодами, ASSUMPTION) и затраты топлива печи; "
+                "конец кипения сырья гидроочистки смещается по официальной ВАК AVT6:240-350:EBP. "
+                "Буфер перегрева змеевика 386.4 °C контролирует Агент Надежности."
             )
 
         # Legacy-параметры
@@ -212,6 +225,29 @@ class XAIGenerator:
                 elif st == "vetoed":
                     alt_lines.append(f"• Кандидат `{cid}`: отклонен аудитором ({alt.get('reasons')}).")
         alt_text = "\n".join(alt_lines[:6]) if alt_lines else "• Все альтернативные кандидаты рассмотрены и ранжированы по Net Utility."
+        # Требования агентов без вето: для рекомендации и для отклоненных ходов печью (сценарий 4 ТЗ)
+        requirement_lines: List[str] = []
+        for rep in audit_reports or []:
+            rep_cand = getattr(rep, "candidate_id", None)
+            is_furnace_veto = "AVT_T55_SP" in rep_cand if isinstance(rep_cand, str) else False
+            if rep_cand != cand_id and not is_furnace_veto:
+                continue
+            for req in getattr(rep, "requirements", []) or []:
+                line = f"• Агент {'Качества' if getattr(rep, 'agent', '') == 'quality' else 'Надежности'} → `{rep_cand}`: {req}"
+                if line not in requirement_lines:
+                    requirement_lines.append(line)
+        requirements_section = (
+            "\n#### 🧾 Требования агентов:\n" + "\n".join(requirement_lines[:4]) + "\n" if requirement_lines else ""
+        )
+
+        pareto_section = ""
+        if pareto is not None:
+            from src.agents.pareto import format_pareto_summary
+
+            pareto_section = (
+                "\n#### 🎯 Парето-анализ (маржа ↔ качество ↔ износ катализатора):\n"
+                f"{format_pareto_summary(pareto, cand_id)}\n"
+            )
 
         # 8. Раздел «Уверенность»
         conf_lines = []
@@ -268,7 +304,7 @@ class XAIGenerator:
 
 #### ⚖️ Почему не альтернативы:
 {alt_text}
-
+{requirements_section}{pareto_section}
 #### 🛡 Уверенность:
 {conf_text}
 
