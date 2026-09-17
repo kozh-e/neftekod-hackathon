@@ -32,6 +32,11 @@ from src.twin.tags import TAGS, fill_from_nominal, normalize_tags
 # Аппаратные константы насыщения АЦП/датчиков
 CLAMPING_VALUES: Set[float] = {307.0, 313.0}
 
+# Максимально правдоподобное значение серы онлайн-анализатора HT_Q21 (ppm).
+# Любое единичное показание выше этого порога (включая клампинг 307/313) —
+# аномальный выброс КИП, а не реальный технологический сигнал.
+Q21_MAX_PLAUSIBLE_PPM: float = 50.0
+
 # Критические теги, влияющие на технологическую безопасность (T1/ПАЗ)
 CRITICAL_TAGS: Set[str] = {
     "AVT_P52",
@@ -113,6 +118,9 @@ def assess_data(
             elif val_float in CLAMPING_VALUES:
                 quality = SignalQuality.BAD
                 flags.append("CLAMPED")
+            elif tag == "HT_Q21" and val_float > Q21_MAX_PLAUSIBLE_PPM:
+                quality = SignalQuality.SUSPECT
+                flags.append("OUTLIER_SPIKE")
             elif tag in PHYSICAL_RANGES:
                 lo, hi = PHYSICAL_RANGES[tag]
                 if not (lo <= val_float <= hi):
@@ -340,11 +348,20 @@ def node_data_quality_guard(state: MasGraphState) -> Dict[str, Any]:
     n_filled_critical = len([w for w in fill_warnings if w.startswith("FILLED:")])
 
     q21_val = norm_tags.get("HT_Q21")
+    q21_is_spike = False
+    if isinstance(q21_val, (int, float)) and not math.isnan(q21_val):
+        q21_val_f = float(q21_val)
+        if q21_val_f in CLAMPING_VALUES or q21_val_f > Q21_MAX_PLAUSIBLE_PPM:
+            q21_is_spike = True
+            fill_warnings.append(
+                f"OUTLIER_SPIKE:HT_Q21={q21_val_f:.2f} ppm (аномальный выброс КИП, переход на буфер LIMS)"
+            )
+
     q21_unavailable = (
         q21_val is None
         or not isinstance(q21_val, (int, float))
         or math.isnan(q21_val)
-        or float(q21_val) in CLAMPING_VALUES
+        or q21_is_spike
     )
 
     conf_score = max(
