@@ -1,34 +1,44 @@
-"""FastAPI сервис для мультиагентной системы управления технологическим комплексом.
+"""FastAPI сервис для мультиагентной системы управления технологическим комплексом (API v3).
 
-Предоставляет REST API (T6.4):
-- POST /api/v1/optimize: Запуск цикла оптимизации через LangGraph с фиксацией в decision_log
-- GET /api/v1/health: Проверка работоспособности сервиса
+Предоставляет REST API:
+- POST /api/v1/optimize: Запуск цикла оптимизации через детерминированный граф v3 (или legacy/shadow)
+- GET /api/v1/decisions/{cycle_id}: Получение полной трассы решения DecisionTrace
+- GET /api/v1/policy: Получение активной версии технологической политики
+- GET /api/v1/health: Проверка доступности сервиса
+- Сторожевой таймер жесткого бюджета (10 с -> REFUSAL_TIMEOUT).
 """
 
 from __future__ import annotations
 
 import datetime
+from concurrent.futures import ThreadPoolExecutor, TimeoutError
 from typing import Any, Dict, List, Optional
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, Field
 
 from src.agents.decision_log import append_decision
-from src.agents.graph import build_mvp_graph
+from src.agents.decision_store import DEFAULT_STORE
+from src.agents.graph import build_core_graph, build_mvp_graph, get_graph
+from src.agents.policy import PolicyStore
 from src.agents.state import RawTelemetry
+from src.xai.card import TZ_REFUSAL_TIMEOUT
 
 app = FastAPI(
     title="Neftecode Closed-Loop MES/APC Multi-Agent System",
     description="Автономная мультиагентная система управления производством дизельного топлива Евро-5",
-    version="2.0.0",
+    version="3.0.0",
 )
 
-# Компилируем граф один раз при запуске сервиса
-graph = build_mvp_graph()
+EXECUTOR = ThreadPoolExecutor(max_workers=4)
+POLICY_STORE = PolicyStore()
+
+# Скомпилированные графы
+core_graph = build_core_graph()
+mvp_graph = build_mvp_graph()
 
 
 class TelemetryPayload(BaseModel):
     """Схема входного запроса телеметрии технологического комплекса."""
-
     tags: Dict[str, Any] = Field(
         ...,
         description="Словарь показаний КИПиА и анализов LIMS",
@@ -49,11 +59,14 @@ class TelemetryPayload(BaseModel):
         default=None,
         description="Опциональные параметры цен и тарифов для расчета маржи",
     )
+    graph_mode: Optional[str] = Field(
+        default=None,
+        description="Режим графа: core_v3 (при явном указании), legacy (по умолчанию для обратной совместимости), shadow",
+    )
 
 
 class OptimizationResponse(BaseModel):
-    """Схема ответа мультиагентной системы."""
-
+    """Схема ответа мультиагентной системы v3 (аддитивно совместима с v2)."""
     status: str
     explanation: str
     recommended_delta_u: Dict[str, float]
@@ -64,9 +77,15 @@ class OptimizationResponse(BaseModel):
     warnings: List[str] = Field(default_factory=list)
     alternatives: List[Dict[str, Any]] = Field(default_factory=list)
     predictions: Optional[Dict[str, Any]] = None
-    pareto: Optional[Dict[str, Any]] = Field(default=None, description="Парето-фронт допустимых кандидатов (src.agents.pareto)")
+    pareto: Optional[Dict[str, Any]] = Field(default=None, description="Парето-фронт допустимых кандидатов")
     economics: Optional[Dict[str, Any]] = Field(default=None, description="Расчетные crack-spreads и валовая маржа")
 
+    # Аддитивные поля v3
+    card: Optional[Dict[str, Any]] = Field(default=None, description="7-блочная XAI-карточка решения ТЗ §5")
+    kernel: Optional[Dict[str, Any]] = Field(default=None, description="Вердикт независимого ядра безопасности")
+    recovery: Optional[Dict[str, Any]] = Field(default=None, description="Многошаговый план восстановления")
+    prices: Optional[List[Dict[str, Any]]] = Field(default=None, description="Цены свойств гидрогенизата в блендинге")
+    trace_id: Optional[str] = Field(default=None, description="Идентификатор трассы цикла cycle_id")
 
 
 @app.get("/api/v1/health")
@@ -75,15 +94,30 @@ async def health_check() -> Dict[str, str]:
     return {
         "status": "healthy",
         "service": "neftecode-mas-api",
-        "version": "2.0.0",
+        "version": "3.0.0",
     }
+
+
+@app.get("/api/v1/policy")
+async def get_active_policy() -> Dict[str, Any]:
+    """Возвращает текущую активную технологическую политику ядра."""
+    return POLICY_STORE.active_policy.model_dump()
+
+
+@app.get("/api/v1/decisions/{cycle_id}")
+async def get_decision_by_id(cycle_id: str) -> Dict[str, Any]:
+    """Возвращает полную трассу решения DecisionTrace из SQLite."""
+    trace = DEFAULT_STORE.get(cycle_id)
+    if trace is None:
+        raise HTTPException(status_code=404, detail=f"Трасса решения с cycle_id '{cycle_id}' не найдена.")
+    return trace.model_dump()
 
 
 @app.post("/api/v1/optimize", response_model=OptimizationResponse)
 async def run_optimization_cycle(payload: TelemetryPayload):
     """
-    Принимает текущий срез телеметрии КИПиА, запускает мультиагентный граф LangGraph
-    и возвращает согласованную арбитражем рекомендацию с физическим XAI-обоснованием.
+    Принимает текущий срез телеметрии КИПиА, запускает мультиагентный граф
+    со сторожевым таймером (10 с) и возвращает согласованную арбитражем рекомендацию.
     """
     raw_tags = payload.tags
     if not isinstance(raw_tags, dict):
@@ -102,20 +136,48 @@ async def run_optimization_cycle(payload: TelemetryPayload):
     except Exception as exc:
         raise HTTPException(status_code=422, detail=f"Ошибка валидации телеметрии: {exc}")
 
+    policy = POLICY_STORE.active_policy
+    mode = payload.graph_mode or "legacy"
+
     state_input: Dict[str, Any] = {
         "raw_telemetry": telemetry,
         "tags": tags_copy,
+        "raw_tags": tags_copy,
         "session_id": payload.session_id,
         "economics": payload.economics,
+        "policy": policy,
     }
 
+    # Выбор исполняемого графа
+    target_graph = core_graph if mode == "core_v3" else mvp_graph
+
+    # Выполнение графа с контролем жесткого бюджета времени
+    future = EXECUTOR.submit(target_graph.invoke, state_input)
     try:
-        result = graph.invoke(state_input)
+        result = future.result(timeout=policy.hard_budget_s)
+    except TimeoutError:
+        # Регламентный таймаут жесткого бюджета
+        return OptimizationResponse(
+            status="REFUSAL_TIMEOUT",
+            explanation=TZ_REFUSAL_TIMEOUT,
+            recommended_delta_u={},
+            markdown_report=f"> [!CAUTION]\n> {TZ_REFUSAL_TIMEOUT}",
+        )
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f"Внутренняя ошибка графа вычислений: {exc}")
 
-    # Запись в журнал решений
-    append_decision(result, {"tags": raw_tags, "session_id": payload.session_id, "economics": payload.economics})
+    # В режиме shadow дополнительно запускаем legacy для журнала расхождений
+    if mode == "shadow":
+        try:
+            EXECUTOR.submit(mvp_graph.invoke, state_input)
+        except Exception:
+            pass
+
+    # Запись в legacy-журнал решений для обратной совместимости
+    try:
+        append_decision(result, {"tags": raw_tags, "session_id": payload.session_id, "economics": payload.economics})
+    except Exception:
+        pass
 
     final_rec = result.get("final_recommendation")
     data_quality = result.get("data_quality")
@@ -163,6 +225,22 @@ async def run_optimization_cycle(payload: TelemetryPayload):
     except Exception:
         pass
 
+    # Поля v3
+    card_obj = result.get("card")
+    card_dict = card_obj.__dict__ if hasattr(card_obj, "__dict__") else None
+    kernel_obj = result.get("kernel")
+    kernel_dict = kernel_obj.model_dump() if hasattr(kernel_obj, "model_dump") else None
+    decision_obj = result.get("decision")
+    recov_dict = decision_obj.recovery.model_dump() if (decision_obj and decision_obj.recovery) else None
+    cycle_id = result.get("cycle", {}).get("cycle_id")
+
+    # Цены блендинга
+    prices_list = None
+    sel_sig = getattr(decision_obj, "selected", None) if decision_obj else None
+    if sel_sig and "blending" in result and sel_sig in result["blending"]:
+        b_cert = result["blending"][sel_sig]
+        prices_list = [p.model_dump() for p in getattr(b_cert, "prices", ())]
+
     return OptimizationResponse(
         status=status,
         explanation=explanation,
@@ -176,8 +254,75 @@ async def run_optimization_cycle(payload: TelemetryPayload):
         predictions=predictions,
         pareto=result["pareto"].model_dump(mode="json") if result.get("pareto") is not None else None,
         economics=econ_summary,
+        card=card_dict,
+        kernel=kernel_dict,
+        recovery=recov_dict,
+        prices=prices_list,
+        trace_id=cycle_id,
     )
 
+
+# =============================================================================
+# REST API Эндпоинты LLM-супервизора (Этап P4)
+# =============================================================================
+
+class OperatorQuestionRequest(BaseModel):
+    question: str = Field(..., description="Вопрос оператора технологической установки")
+
+
+class DecisionActionRequest(BaseModel):
+    user: str = Field(default="Инженер-технолог", description="ФИО или роль лица, принимающего решение")
+
+
+@app.get("/api/v1/supervisor/findings")
+async def get_supervisor_findings(status: Optional[str] = None) -> List[Dict[str, Any]]:
+    """Возвращает список диагностических находок и предупреждений супервизора."""
+    from src.supervisor.store import DEFAULT_SUPERVISOR_STORE
+    return [f.model_dump() for f in DEFAULT_SUPERVISOR_STORE.list_findings(status=status)]
+
+
+@app.get("/api/v1/supervisor/briefings")
+async def get_supervisor_briefings(limit: int = 10) -> List[Dict[str, Any]]:
+    """Возвращает список сводок технологических смен."""
+    from src.supervisor.store import DEFAULT_SUPERVISOR_STORE
+    return [b.model_dump() for b in DEFAULT_SUPERVISOR_STORE.list_briefings(limit=limit)]
+
+
+@app.get("/api/v1/supervisor/change-requests")
+async def get_supervisor_change_requests(status: Optional[str] = None) -> List[Dict[str, Any]]:
+    """Возвращает список запросов на изменение технологической политики."""
+    from src.supervisor.store import DEFAULT_SUPERVISOR_STORE
+    return [r.model_dump() for r in DEFAULT_SUPERVISOR_STORE.list_change_requests(status=status)]
+
+
+@app.post("/api/v1/supervisor/change-requests/{request_id}/approve")
+async def approve_change_request(request_id: str, payload: DecisionActionRequest) -> Dict[str, Any]:
+    """Утверждает запрос на изменение и активирует новую версию политики."""
+    from src.supervisor.store import DEFAULT_SUPERVISOR_STORE
+    success = DEFAULT_SUPERVISOR_STORE.approve_change_request(request_id, approved_by=payload.user)
+    if not success:
+        raise HTTPException(status_code=400, detail=f"Не удалось утвердить запрос {request_id}")
+    return {"status": "APPROVED", "request_id": request_id, "decided_by": payload.user}
+
+
+@app.post("/api/v1/supervisor/change-requests/{request_id}/reject")
+async def reject_change_request(request_id: str, payload: DecisionActionRequest) -> Dict[str, Any]:
+    """Отклоняет запрос на изменение политики."""
+    from src.supervisor.store import DEFAULT_SUPERVISOR_STORE
+    success = DEFAULT_SUPERVISOR_STORE.reject_change_request(request_id, rejected_by=payload.user)
+    if not success:
+        raise HTTPException(status_code=400, detail=f"Не удалось отклонить запрос {request_id}")
+    return {"status": "REJECTED", "request_id": request_id, "decided_by": payload.user}
+
+
+@app.post("/api/v1/supervisor/ask")
+async def ask_supervisor(payload: OperatorQuestionRequest) -> Dict[str, Any]:
+    """Консультация оператора по трассам решений и ограничениям установки."""
+    from src.supervisor.service import DEFAULT_SUPERVISOR_SERVICE
+    ans = DEFAULT_SUPERVISOR_SERVICE.answer_operator(payload.question)
+    if not ans:
+        raise HTTPException(status_code=500, detail="Супервизор не смог сформировать ответ")
+    return ans.model_dump()
 
 
 if __name__ == "__main__":

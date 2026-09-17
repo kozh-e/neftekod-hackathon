@@ -584,3 +584,111 @@ if pareto_analysis is not None and pareto_analysis.points:
         + f". Запас вето по сере 2σ_S = {pareto_analysis.sulfur_offset_ppm:.2f} ppm; переочистка — прогноз серы ниже "
         f"{pareto_analysis.giveaway_boundary_ppm:.2f} ppm (возраст измерения {pareto_analysis.sulfur_age_hours:.1f} ч)."
     )
+
+# -----------------------------------------------------------------------------
+# LLM-Супервизор: Асинхронный советник и диагност (Этап P4)
+# -----------------------------------------------------------------------------
+st.divider()
+st.header("🤖 Асинхронный LLM-супервизор (Qwen 27B / Claude)")
+
+st.info(
+    "ℹ️ **ИИ-ассистент: рекомендательный статус, не является уставками** (advisory only, no setpoints). "
+    "Агент работает вне цикла оптимизации, анализирует трассы решений и заземляет все выводы на факты из EvidenceRef."
+)
+
+from src.supervisor.store import DEFAULT_SUPERVISOR_STORE
+from src.supervisor.service import DEFAULT_SUPERVISOR_SERVICE
+
+sup_tab_qa, sup_tab_briefing, sup_tab_findings, sup_tab_policy = st.tabs([
+    "💬 Вопрос оператора (Q&A)",
+    "📋 Сводка смены (Briefing)",
+    "🔍 Диагностические находки (Findings)",
+    "⚙️ Запросы на изменение политики (HITL)",
+])
+
+with sup_tab_qa:
+    st.subheader("Консультация сменного инженера-технолога")
+    user_q = st.text_input(
+        "Задайте вопрос по поведению автоматики или ограничениям:",
+        value="Почему не поднимается загрузка сырья?",
+        key="supervisor_user_question",
+    )
+    if st.button("🔎 Получить ответ супервизора", type="primary", key="btn_ask_supervisor"):
+        with st.spinner("Анализ трассы решения и проверка заземления..."):
+            ans = DEFAULT_SUPERVISOR_SERVICE.answer_operator(user_q)
+        if ans:
+            st.success(f"**Ответ:** {ans.direct_answer}")
+            st.markdown(f"**Техническое обоснование:** {ans.technical_explanation}")
+            if ans.active_constraints_involved:
+                st.markdown(f"**Задействованные ограничения:** `{', '.join(ans.active_constraints_involved)}`")
+            st.info(f"**Рекомендация оператору:** {ans.operator_guidance}")
+            if ans.evidence_refs:
+                st.caption(f"Доказательства (EvidenceRef): {', '.join(ans.evidence_refs)}")
+
+with sup_tab_briefing:
+    st.subheader("Сводка передачи технологической смены")
+    if st.button("🔄 Сформировать свежую сводку", key="btn_gen_briefing"):
+        with st.spinner("Сборка пакета смены и структурированный синтез..."):
+            brief = DEFAULT_SUPERVISOR_SERVICE.generate_shift_briefing()
+            if brief:
+                st.toast("Сводка смены успешно сформирована!")
+
+    briefings = DEFAULT_SUPERVISOR_STORE.list_briefings(limit=5)
+    if briefings:
+        latest_b = briefings[0].briefing
+        st.markdown(f"### {latest_b.shift_period} (`{latest_b.briefing_id}`)")
+        st.markdown(f"**Резюме:** {latest_b.summary_text}")
+        bc1, bc2, bc3 = st.columns(3)
+        bc1.metric("Успешных тактов", latest_b.status_counts.get("SUCCESS", 0))
+        bc2.metric("В зоне нечувствительности", latest_b.status_counts.get("DEADBAND", 0))
+        bc3.metric("Отказов", latest_b.status_counts.get("REFUSAL", 0))
+
+        st.markdown(f"**Анализ качества ГОСТ:** {latest_b.quality_assessment}")
+        st.markdown(f"**Анализ безопасности ПАЗ:** {latest_b.safety_assessment}")
+
+        if latest_b.open_concerns:
+            st.warning("**Факторы внимания:**\n- " + "\n- ".join(latest_b.open_concerns))
+        if latest_b.incoming_recommendations:
+            st.info("**Рекомендации заступающей смене:**\n- " + "\n- ".join(latest_b.incoming_recommendations))
+    else:
+        st.write("Сводки смен пока не сформированы.")
+
+with sup_tab_findings:
+    st.subheader("Журнал технологических находок и аномалий")
+    findings = DEFAULT_SUPERVISOR_STORE.list_findings()
+    if findings:
+        for f in findings:
+            badge = "🔴" if f.severity == "CRITICAL" else ("🟡" if f.severity == "WARNING" else "🔵")
+            with st.expander(f"{badge} [{f.category}] {f.title} ({f.finding_id}) - Статус: {f.status}"):
+                st.markdown(f"**Первопричина:** {f.root_cause}")
+                st.markdown(f"**Оценка риска:** {f.safety_risk_assessment}")
+                if f.checks_recommended:
+                    st.markdown("**Рекомендуемые проверки:**\n- " + "\n- ".join(f.checks_recommended))
+                if f.evidence_refs:
+                    st.caption(f"Ссылки: {', '.join(f.evidence_refs)}")
+    else:
+        st.success("Открытых диагностических инцидентов и аномалий не зафиксировано.")
+
+with sup_tab_policy:
+    st.subheader("Запросы на изменение технологической политики (HITL)")
+    reqs = DEFAULT_SUPERVISOR_STORE.list_change_requests()
+    if reqs:
+        for req in reqs:
+            with st.expander(f"Запрос {req.request_id} — Статус: {req.status}"):
+                st.markdown(f"**Прогноз эффекта:** {req.proposal.expected_kpi_impact}")
+                st.markdown(f"**Теневой реплей (Shadow Replay):** {'✅ Пройден' if req.shadow_passed else '❌ Не пройден'}")
+                for it in req.proposal.items:
+                    st.markdown(f"- **{it.field}**: `{it.old_value}` → `{it.new_value}` (*{it.justification}*)")
+
+                if req.status == "PENDING_APPROVAL":
+                    c_app, c_rej = st.columns(2)
+                    if c_app.button("✅ Утвердить изменение", key=f"app_{req.request_id}", type="primary"):
+                        DEFAULT_SUPERVISOR_STORE.approve_change_request(req.request_id, approved_by="Главный технолог")
+                        st.success("Политика успешно обновлена и активирована в контуре!")
+                        st.rerun()
+                    if c_rej.button("❌ Отклонить", key=f"rej_{req.request_id}"):
+                        DEFAULT_SUPERVISOR_STORE.reject_change_request(req.request_id, rejected_by="Главный технолог")
+                        st.warning("Запрос на изменение отклонен.")
+                        st.rerun()
+    else:
+        st.write("Нет активных запросов на изменение технологической политики.")
