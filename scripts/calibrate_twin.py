@@ -171,18 +171,9 @@ def calibrate_and_evaluate():
     train_lims = df_work_lims[df_work_lims["date"] < split_date]
     test_lims = df_work_lims[df_work_lims["date"] >= split_date]
 
-    # Невязка серы ЛИМС - Q21
-    valid_s = train_lims[["LIMS_HT_S", "HT_Q21"]].dropna()
-    delta_s = valid_s["LIMS_HT_S"] - valid_s["HT_Q21"]
-    s_bias = float(delta_s.median())
-    s_iqr = float(delta_s.quantile(0.75) - delta_s.quantile(0.25))
-    sigma_s0 = round(s_iqr / 1.349, 3)
-
-    # Невязка вспышки ЛИМС - T18
-    valid_fl = train_lims[["LIMS_HT_FLASH", "HT_T18"]].dropna()
-    delta_fl = valid_fl["LIMS_HT_FLASH"] - valid_fl["HT_T18"]
-    fl_iqr = float(delta_fl.quantile(0.75) - delta_fl.quantile(0.25))
-    sigma_fl = round(fl_iqr / 1.349, 3)
+    # Неопределенность прогнозов качества (σ серы, T95, вспышки) здесь не оценивается: окно merge_asof 4 ч
+    # дублирует пробы ЛИМС и добавляет дрейф режима в невязку. Методика ТЗ (синхронизация по времени отбора,
+    # bias update по доступным пробам) — scripts/estimate_quality_uncertainty.py -> data/processed/quality_uncertainty.json
 
     # Резервуарные медианы
     lims_s_out_ref = float(train_lims["LIMS_HT_S"].median())
@@ -224,10 +215,6 @@ def calibrate_and_evaluate():
             "delta_d15_hdt": 11.1,
             "delta_t95_hdt": 6.0,
         },
-        "limits": {
-            "sigma_s0_ppm": sigma_s0 if not math.isnan(sigma_s0) else 1.19,
-            "sigma_flash_c": sigma_fl if not math.isnan(sigma_fl) else 3.85,
-        }
     }
 
     params_path = config_dir / "twin_params.json"
@@ -297,9 +284,7 @@ def calibrate_and_evaluate():
 ---
 
 ## 3. Статистический анализ невязок КИПиА и LIMS (ADR-12)
-- **Сера (LIMS - Q21):** медиана {s_bias:+.2f} ppm, робастное $\\sigma_{{S0}} = \\text{{IQR}} / 1.349 = {sigma_s0:.2f}$ ppm.
-- **Вспышка (LIMS - T18):** робастное $\\sigma_{{\\text{{flash}}}} = {sigma_fl:.2f}$ °C.
-- **Статистический буфер при $z = 1.645$:** $1.645 \\cdot {sigma_s0:.2f} = {1.645 * sigma_s0:.2f}$ ppm.
+- Оценивается отдельно по методике ТЗ: `scripts/estimate_quality_uncertainty.py` -> `data/processed/quality_uncertainty.json`.
 
 ---
 

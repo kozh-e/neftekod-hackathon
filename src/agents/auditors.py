@@ -5,8 +5,9 @@
    Проверяет соблюдение ограничений оборудования на установившемся режиме и траектории
    (HT_DP_MAX_KPA, HT_T_OUT_MAX, HT_GOR_MIN, FEED_TO_AVT) и начисляет лог-барьеры риска.
 2. QualityAgent: Агент соблюдения стандарта ГОСТ 32511-2013 (Евро-5).
-   Проверяет статистические буферы по сере (ADR-12), температуре вспышки, T95,
-   а также допустимость рецепта блендинга через прогноз запасов резервуаров.
+   Правило промпта агента (tz:598): прогноз + 2σ не должен нарушать спецификацию.
+   Сера и вспышка проверяются на гидрогенизате; T95 — на товарном топливе через выполнимость
+   рецепта блендинга (T95 ≤ 360 °C контролируется в товарном резервуаре, PDF; план C10).
 """
 
 from __future__ import annotations
@@ -33,6 +34,7 @@ from src.agents.limits import (
     T55_MAX,
     T95_PRODUCT_MAX,
 )
+from src.agents.lims import lims_age_from_state
 from src.agents.state import ControlCandidate, MasGraphState, SafetyAuditReport
 from src.agents.tanks import ComponentTank
 
@@ -138,6 +140,18 @@ class ReliabilityAgent:
             violated_limits.append("AVT_T55")
             violation_reasons.append(f"ESD_VETO: T55={cand.expected_t55:.2f}°C превышает 5% защитный порог ПАЗ ({cls.MAX_COT_T55:.2f}°C)")
 
+        # 2.1. Антипаттерн 3 ТЗ («экономический каннибализм»): нагрев печи внутри зоны предупреждения запрещен
+        t55_hold = (hold_cand.expected_t55 if hold_cand is not None else None)
+        t55_up = cand.delta_u.get("AVT_T55_SP", 0.0) > 1e-6 or (
+            t55_hold is not None and cand.expected_t55 is not None and cand.expected_t55 > t55_hold + 1e-6
+        )
+        if t55_up and cand.expected_t55 is not None and cand.expected_t55 > cls.COT_WARNING_ZONE:
+            violated_limits.append("AVT_T55_WARNING_ZONE")
+            violation_reasons.append(
+                f"ESD_VETO: нагрев печи П-3 до T55={cand.expected_t55:.2f}°C внутри зоны предупреждения "
+                f"(> {cls.COT_WARNING_ZONE:.1f}°C): приближение к ПАЗ ради выгоды запрещено (антипаттерн 3 ТЗ)"
+            )
+
         if cand.expected_w10 is not None and not cand.trajectory and cand.expected_w10 > cls.MAX_W10:
             violated_limits.append("HT_W10")
             violation_reasons.append(f"ESD_VETO: W10={cand.expected_w10:.3f} кгс/см² превышает предел ({cls.MAX_W10:.3f} кгс/см²)")
@@ -199,6 +213,7 @@ class QualityAgent:
         violated_limits: List[str] = []
         limit_margins: Dict[str, float] = {}
         violation_reasons: List[str] = []
+        requirements: List[str] = []
 
         z_eff = z if z is not None else QUALITY_Z
 
@@ -246,17 +261,9 @@ class QualityAgent:
                 if ass_f.reason:
                     violation_reasons.append(ass_f.reason)
 
-            # 3. Температура конца перегонки 95% (T95)
+            # 3. T95: норматив товарного топлива; запас 2σ добавляется к прогнозу T95 ГО ДТ в рецепте (п. 4)
             offset_t95 = stat_offset(SIGMA_T95_C, age_t95, z_eff)
             t95_ss = ss.get("HT_T95_PRODUCT", cand.expected_t95 or 347.0)
-            t95_traj = traj.get("HT_T95_PRODUCT")
-            h_t95_traj = hold_traj.get("HT_T95_PRODUCT")
-            ass_t95 = assess_limit("HT_T95_PRODUCT", t95_traj, t95_ss, h_t95_traj, T95_PRODUCT_MAX.hi or 360.0, "max", offset_t95)
-            limit_margins["HT_T95_PRODUCT"] = ass_t95.margin
-            if ass_t95.vetoed:
-                violated_limits.append("HT_T95_PRODUCT")
-                if ass_t95.reason:
-                    violation_reasons.append(ass_t95.reason)
 
             # 4. Допустимость рецепта блендинга через прогноз запаса в резервуаре ГО ДТ
             flow_tph = ss.get("HT_FEED_SP", 219.6) * 0.98
@@ -292,9 +299,9 @@ class QualityAgent:
                 d15=fc_props["D15"],
                 flash_c=fc_props["Flash"],
                 cfpp_c=fc_props["CFPP"],
-                t95_c=fc_props["T95"],
+                t95_c=fc_props["T95"] + offset_t95,
                 cn=fc_props["CN"],
-                props_source={},
+                props_source={"T95": f"прогноз + {z_eff:g}σ ({offset_t95:.2f} °C)"},
             )
             kerosene_tank = base_tanks.get("Kerosene")
             c_kero = BlendComponent(
@@ -337,8 +344,19 @@ class QualityAgent:
                 additives=additives,
                 batch_t=2000.0,
                 target_cfpp=-15.0,
+                t95_max=T95_PRODUCT_MAX.hi or 360.0,
             )
             blend_res = solve_blend(blend_prob)
+            t95_margin = (T95_PRODUCT_MAX.hi or 360.0) - (fc_props["T95"] + offset_t95)
+            limit_margins["BLEND_T95_GODT_UCB"] = round(t95_margin, 4)
+
+            # Требование стабилизации фракционного состава (сценарий 4 ТЗ): влияние хода на T95 ГО ДТ
+            h_t95_ss = (hold_cand.steady_state or {}).get("HT_T95_PRODUCT") if hold_cand is not None else None
+            if h_t95_ss is not None and abs(t95_ss - h_t95_ss) > 1e-3:
+                requirements.append(
+                    f"Стабилизация фракционного состава: ход меняет T95 ГО ДТ на {t95_ss - h_t95_ss:+.2f} °C; "
+                    f"запас T95 товарного топлива до 360 °C с учетом {z_eff:g}σ ({offset_t95:.2f} °C): {t95_margin:.2f} °C"
+                )
             if not blend_res.is_feasible:
                 violated_limits.append("BLEND_FEASIBILITY")
                 violation_reasons.append(f"GOST_VETO_BLEND_INFEASIBLE: {blend_res.infeasibility_reason}")
@@ -365,6 +383,7 @@ class QualityAgent:
             agent="quality",
             violated_limits=violated_limits,
             limit_margins=limit_margins,
+            requirements=requirements,
         )
 
     @classmethod
@@ -406,19 +425,14 @@ def node_quality_agent(state: MasGraphState) -> Dict[str, Any]:
     candidates = state.get("candidates", [])
     hold_cand = next((c for c in candidates if c.is_hold), None)
     tags = state.get("tags")
-    lims_age = 0.0
-    if "raw_telemetry" in state and hasattr(state["raw_telemetry"], "lims_age_hours"):
-        lims_age = state["raw_telemetry"].lims_age_hours
-    elif tags and "lims_age_hours" in tags:
-        lims_age = float(tags["lims_age_hours"])
-    elif "confidence" in state and "lims_age_hours" in state["confidence"]:
-        lims_age = float(state["confidence"]["lims_age_hours"])
+    lims_age = lims_age_from_state(state)
+    tanks = state.get("tanks")
 
     vetoed: List[str] = []
     reports: List[SafetyAuditReport] = []
 
     for cand in candidates:
-        report = QualityAgent.audit(cand, hold_cand=hold_cand, tags=tags, lims_age_hours=lims_age)
+        report = QualityAgent.audit(cand, hold_cand=hold_cand, tags=tags, lims_age_hours=lims_age, tanks=tanks)
         reports.append(report)
         if report.is_vetoed:
             vetoed.append(cand.candidate_id)

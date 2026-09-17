@@ -64,6 +64,7 @@ class OptimizationResponse(BaseModel):
     warnings: List[str] = Field(default_factory=list)
     alternatives: List[Dict[str, Any]] = Field(default_factory=list)
     predictions: Optional[Dict[str, Any]] = None
+    pareto: Optional[Dict[str, Any]] = Field(default=None, description="Парето-фронт допустимых кандидатов (src.agents.pareto)")
     economics: Optional[Dict[str, Any]] = Field(default=None, description="Расчетные crack-spreads и валовая маржа")
 
 
@@ -173,6 +174,7 @@ async def run_optimization_cycle(payload: TelemetryPayload):
         warnings=result.get("twin_warnings", []),
         alternatives=result.get("alternatives", []),
         predictions=predictions,
+        pareto=result["pareto"].model_dump(mode="json") if result.get("pareto") is not None else None,
         economics=econ_summary,
     )
 

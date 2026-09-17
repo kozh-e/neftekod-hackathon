@@ -197,7 +197,12 @@ class ArbitrationNode:
             reverse=True,
         )
 
-        vetoed = [c for c in candidates if c.candidate_id in vetoed_set]
+        # Сначала самые выгодные из отклоненных: оператор видит, какую экономику запретили вето
+        vetoed = sorted(
+            (c for c in candidates if c.candidate_id in vetoed_set),
+            key=lambda c: c.expected_margin,
+            reverse=True,
+        )
 
         alternatives: List[Dict[str, Any]] = []
 
@@ -273,7 +278,12 @@ def node_arbitration(state: MasGraphState) -> Dict[str, Any]:
         selected_candidate=selected_cand,
     )
 
-    if final_rec.status.startswith("SUCCESS") and selected_cand is not None:
+    # Карточка XAI: для рекомендации хода и для решения «сохранить режим» в зоне нечувствительности (tz:998)
+    card_cand = selected_cand
+    if final_rec.status.startswith("DEADBAND"):
+        card_cand = next((c for c in candidates if c.is_hold), None)
+
+    if card_cand is not None and (final_rec.status.startswith("SUCCESS") or final_rec.status.startswith("DEADBAND")):
         try:
             from src.xai.narrative import XAIGenerator
 
@@ -294,8 +304,8 @@ def node_arbitration(state: MasGraphState) -> Dict[str, Any]:
                 )
             )
 
-            final_rec.markdown_report = XAIGenerator.generate_explanation(
-                best_candidate=selected_cand,
+            report = XAIGenerator.generate_explanation(
+                best_candidate=card_cand,
                 base_state=base_dict,
                 risk_penalties=risk_penalties,
                 lims_age_hours=lims_age,
@@ -303,7 +313,12 @@ def node_arbitration(state: MasGraphState) -> Dict[str, Any]:
                 alternatives=alternatives,
                 confidence=state.get("confidence"),
                 blending_recipe=state.get("blending_recipe"),
+                pareto=state.get("pareto"),
+                audit_reports=audit_reports,
             )
+            if card_cand is not selected_cand:
+                report = f"**Решение арбитража ({final_rec.status}):** {final_rec.explanation}\n\n{report}"
+            final_rec.markdown_report = report
         except Exception:
             pass
 

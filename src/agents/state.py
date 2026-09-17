@@ -27,6 +27,7 @@ class SafetyAuditReport(BaseAgentProtocol):
     agent: Literal["reliability", "quality", "unknown"] = "unknown"
     violated_limits: List[str] = Field(default_factory=list)
     limit_margins: Dict[str, float] = Field(default_factory=dict)
+    requirements: List[str] = Field(default_factory=list, description="Требования агента к режиму без вето (для карточки XAI)")
 
 
 class RawTelemetry(BaseModel):
@@ -150,7 +151,10 @@ class MasGraphState(TypedDict, total=False):
     
     # Барьерные штрафы (ID кандидата -> Штраф руб/ч)
     risk_penalties: Annotated[Dict[str, float], merge_risk_penalties]
-    
+
+    # Парето-анализ допустимых кандидатов (src.agents.pareto.ParetoAnalysis)
+    pareto: Optional[Any]
+
     # Отобранный арбитражем кандидат
     selected_candidate: Optional[ControlCandidate]
     
@@ -159,3 +163,6 @@ class MasGraphState(TypedDict, total=False):
     
     # Оптимальная рецептура блендинга
     blending_recipe: Optional[Any]
+
+    # Резервуарный парк компонентов блендинга (src.agents.tanks.ComponentTank по ключам GODT/Kerosene/Gasoil)
+    tanks: Optional[Dict[str, Any]]

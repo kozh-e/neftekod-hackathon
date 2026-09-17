@@ -17,6 +17,8 @@ import numpy as np
 from pydantic import BaseModel, Field
 from scipy.optimize import linprog
 
+from src.agents.constraints import stat_offset
+from src.agents.lims import lims_age_from_state
 from src.agents.state import MasGraphState
 from src.agents.tanks import ComponentTank
 from src.agents.limits import (
@@ -25,6 +27,8 @@ from src.agents.limits import (
     BLEND_FLASH_MIN,
     BLEND_T95_MAX,
     BLEND_CETANE_MIN,
+    QUALITY_Z,
+    SIGMA_T95_C,
 )
 from src.twin.params import load_params
 
@@ -568,6 +572,10 @@ def node_blending_agent(state: MasGraphState) -> Dict[str, Any]:
         p_add_b = float(getattr(econ_state, "additive_b_price_rub_t", getattr(econ_state, "c_cetane", p_add_b)))
 
 
+    # T95 товарного топлива (tz:598, PDF): к прогнозу T95 ГО ДТ добавляется запас 2σ(age)
+    t95_offset = stat_offset(SIGMA_T95_C, lims_age_from_state(state), QUALITY_Z)
+    props_source["T95"] = f"прогноз + {QUALITY_Z:g}σ ({t95_offset:.2f} °C)"
+
     comp_godt = BlendComponent(
         name="GODT",
         price_rub_t=p_godt,
@@ -578,7 +586,7 @@ def node_blending_agent(state: MasGraphState) -> Dict[str, Any]:
         d15=godt_props["D15"],
         flash_c=godt_props["Flash"],
         cfpp_c=godt_props["CFPP"],
-        t95_c=godt_props["T95"],
+        t95_c=godt_props["T95"] + t95_offset,
         cn=godt_props["CN"],
         props_source=props_source,
     )
@@ -627,7 +635,7 @@ def node_blending_agent(state: MasGraphState) -> Dict[str, Any]:
         sulfur_max=9.5,
         density_bounds=(821.25, 843.75),
         flash_min=56.0,
-        t95_max=358.0,
+        t95_max=BLEND_T95_MAX,
         cn_min=51.5,
         rho_ref=836.0,
     )
@@ -667,6 +675,8 @@ def node_blending_agent(state: MasGraphState) -> Dict[str, Any]:
                 alternatives=state.get("alternatives"),
                 confidence=state.get("confidence"),
                 blending_recipe=recipe,
+                pareto=state.get("pareto"),
+                audit_reports=state.get("audit_reports"),
             )
             updated_rec = final_rec.model_copy(update={"markdown_report": updated_report})
             result_update["final_recommendation"] = updated_rec

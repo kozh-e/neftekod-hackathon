@@ -28,6 +28,11 @@ from src.agents.auditors import (
     node_reliability_agent,
     node_quality_agent,
 )
+from src.agents.pareto import (
+    ParetoAnalysis,
+    analyze_pareto,
+    node_pareto,
+)
 from src.agents.arbitration import (
     ArbitrationNode,
     node_arbitration,
@@ -60,6 +65,9 @@ __all__ = [
     "QualityAgent",
     "node_reliability_agent",
     "node_quality_agent",
+    "ParetoAnalysis",
+    "analyze_pareto",
+    "node_pareto",
     "ArbitrationNode",
     "node_arbitration",
 ]

@@ -6,7 +6,8 @@ Data Quality Guard -> [route_after_guard]
   -> (норма) -> Optimization Agent
        -> (Fan-Out) -> Reliability Agent (ПАЗ/ESD)
        -> (Fan-Out) -> Quality Agent (ГОСТ)
-       -> (Fan-In) -> Topological Arbitrator (Двухстадийный арбитраж)
+       -> (Fan-In) -> Pareto Analysis (недоминируемые допустимые кандидаты)
+       -> Topological Arbitrator (Двухстадийный арбитраж)
             -> [route_after_arbitration]
                  -> (тотальное вето) -> Safe Hold -> END
                  -> (deadband) -> END
@@ -24,6 +25,7 @@ from src.agents.data_guard import node_data_quality_guard
 from src.agents.safe_hold import node_safe_hold
 from src.agents.optimization import node_optimization
 from src.agents.auditors import node_reliability_agent, node_quality_agent
+from src.agents.pareto import node_pareto
 from src.agents.arbitration import node_arbitration
 from src.agents.blending import node_blending_agent
 
@@ -58,6 +60,7 @@ def build_mvp_graph() -> CompiledStateGraph:
     builder.add_node("optimization", node_optimization)
     builder.add_node("reliability_agent", node_reliability_agent)
     builder.add_node("quality_agent", node_quality_agent)
+    builder.add_node("pareto", node_pareto)
     builder.add_node("arbitration", node_arbitration)
     builder.add_node("blending", node_blending_agent)
 
@@ -78,9 +81,10 @@ def build_mvp_graph() -> CompiledStateGraph:
     builder.add_edge("optimization", "reliability_agent")
     builder.add_edge("optimization", "quality_agent")
 
-    # Слияние Fan-In от аудиторов в арбитраж
-    builder.add_edge("reliability_agent", "arbitration")
-    builder.add_edge("quality_agent", "arbitration")
+    # Слияние Fan-In от аудиторов в Парето-анализ (Шаг 7 цикла ТЗ), затем арбитраж
+    builder.add_edge("reliability_agent", "pareto")
+    builder.add_edge("quality_agent", "pareto")
+    builder.add_edge("pareto", "arbitration")
 
     # Условный переход после арбитража
     builder.add_conditional_edges(

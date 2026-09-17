@@ -6,6 +6,7 @@
 - График динамического прогноза серы и вспышки (hold против выбранного кандидата);
 - Таблица альтернатив для оператора (Explainable AI);
 - Рецептура блендинга из резервуаров (3 компонента + присадки А/Б);
+- Парето-фронт допустимых режимов (3D, 2D-проекция, параллельные координаты, таблица);
 - Кнопка «ОДОБРИТЬ» фиксирует уставки через TwinSessionStore (TWIN_STORE.commit_applied_move).
 """
 
@@ -26,6 +27,12 @@ import pandas as pd
 import streamlit as st
 
 from src.agents.graph import build_mvp_graph
+from src.agents.pareto import (
+    build_parallel_coordinates_figure,
+    build_pareto_2d_figure,
+    build_pareto_3d_figure,
+    trade_off_alternatives,
+)
 from src.agents.state import RawTelemetry
 from src.twin.params import load_params
 from src.twin.session import TWIN_STORE
@@ -396,7 +403,10 @@ elif final_rec.status.startswith("SAFE_HOLD"):
 
 elif final_rec.status.startswith("DEADBAND"):
     st.info(f"⏸️ Зона нечувствительности (Deadband): {final_rec.status}")
-    st.write(final_rec.explanation)
+    if getattr(final_rec, "markdown_report", None):
+        st.markdown(final_rec.markdown_report)
+    else:
+        st.write(final_rec.explanation)
 
 elif final_rec.status.startswith("SUCCESS"):
     if final_rec.status == "SUCCESS_CORRECTIVE":
@@ -446,6 +456,7 @@ elif final_rec.status.startswith("SUCCESS"):
                 mb = selected_cand.margin_breakdown
                 df_mb = pd.DataFrame([
                     {"Статья": "📈 Сырьевой поток (Throughput)", "Вклад (руб/ч)": f"{mb.get('throughput', 0.0):+,.2f}"},
+                    {"Статья": "🛢️ Отбор дизеля АВТ (печь П-3)", "Вклад (руб/ч)": f"{mb.get('avt_diesel', 0.0):+,.2f}"},
                     {"Статья": "🔥 Подогрев печи (Топливный газ)", "Вклад (руб/ч)": f"{-mb.get('furnace', 0.0):+,.2f}"},
                     {"Статья": "⚡ Компримирование ВСГ (Электроэнергия)", "Вклад (руб/ч)": f"{-mb.get('compressor', 0.0):+,.2f}"},
                     {"Статья": "🗜️ Системное давление", "Вклад (руб/ч)": f"{-mb.get('pressure', 0.0):+,.2f}"},
@@ -505,3 +516,71 @@ elif final_rec.status.startswith("SUCCESS"):
 
         if st.button("🔴 ОТКЛОНИТЬ (Остаться на базе)", width="stretch"):
             st.warning("Рекомендация ИИ отклонена диспетчером. Технологический режим не изменен.")
+
+# -----------------------------------------------------------------------------
+# Парето-фронт: маржа ↔ качество ↔ износ катализатора (Критерий 4, п. 6.5 ТЗ)
+# -----------------------------------------------------------------------------
+pareto_analysis = graph_result.get("pareto")
+if pareto_analysis is not None and pareto_analysis.points:
+    st.divider()
+    st.subheader("🎯 Парето-фронт допустимых режимов")
+    selected_id = selected_cand.candidate_id if selected_cand else None
+    pc1, pc2, pc3 = st.columns(3)
+    pc1.metric("Допустимых кандидатов", f"{pareto_analysis.n_admissible} из {len(pareto_analysis.points)}")
+    pc2.metric("На Парето-фронте", len(pareto_analysis.front_ids))
+    pc3.metric("Отклонено вето ПАЗ/ГОСТ", sum(1 for p in pareto_analysis.points if p.status == "vetoed"))
+    if selected_id and pareto_analysis.is_on_front(selected_id):
+        st.markdown(
+            f"Рекомендация `{selected_id}` — **Парето-оптимальное (компромиссное) решение в допустимой зоне**: "
+            "максимум маржи среди безопасных режимов, которые не доминируются другими."
+        )
+    reference_id = selected_id or next((p.candidate_id for p in pareto_analysis.points if p.is_hold), None)
+    trade_offs = trade_off_alternatives(pareto_analysis, reference_id)
+    if trade_offs:
+        st.markdown("**Цена компромисса — ближайшие альтернативы на фронте:**")
+        st.dataframe(pd.DataFrame([
+            {
+                "Альтернатива": "Безопаснее по сере" if a.kind == "safer_sulfur" else "Бережнее к катализатору",
+                "Кандидат": a.candidate_id,
+                "Δ маржи, руб/ч": a.delta_margin_rub_h,
+                "Δ серы, ppm": a.delta_sulfur_ppm,
+                "Риск P(S>10), %": f"{a.risk_from_pct:.2f} → {a.risk_to_pct:.2f}" if a.risk_from_pct is not None else None,
+                "Δ WABT, °C": a.delta_wabt_c,
+            }
+            for a in trade_offs
+        ]), width="stretch", hide_index=True)
+
+    if pareto_analysis.n_admissible == 0:
+        st.warning("Все кандидаты отклонены вето ПАЗ/ГОСТ: Парето-фронт пуст, компенсация риска экономикой запрещена.")
+
+    tab_3d, tab_2d, tab_pc, tab_table = st.tabs(["3D-фронт", "2D-проекция", "Все метрики", "Таблица"])
+    with tab_3d:
+        st.plotly_chart(build_pareto_3d_figure(pareto_analysis, selected_id), width="stretch")
+    with tab_2d:
+        metric_labels = {m.key: f"{m.label}, {m.unit}" for m in pareto_analysis.metrics}
+        keys = list(metric_labels)
+        ax1, ax2 = st.columns(2)
+        x_key = ax1.selectbox("Ось X", keys, index=keys.index("sulfur_giveaway"), format_func=metric_labels.get, key="pareto_x")
+        y_key = ax2.selectbox("Ось Y", keys, index=keys.index("net_margin"), format_func=metric_labels.get, key="pareto_y")
+        st.plotly_chart(build_pareto_2d_figure(pareto_analysis, selected_id, x=x_key, y=y_key), width="stretch")
+    with tab_pc:
+        st.plotly_chart(build_parallel_coordinates_figure(pareto_analysis, selected_id), width="stretch")
+    with tab_table:
+        status_names = {"pareto": "Фронт", "dominated": "Доминируемый", "vetoed": "Вето", "incomplete": "Нет данных"}
+        rows = []
+        for p in pareto_analysis.points:
+            rows.append({
+                "ID": p.candidate_id,
+                "Статус": status_names.get(p.status, p.status),
+                "Рекомендация": "⭐" if p.candidate_id == selected_id else "",
+                **{metric_labels[k]: v for k, v in p.metrics.items()},
+                "P(S>10), %": round(p.p_offspec * 100.0, 2) if p.p_offspec is not None else None,
+                "Доминируется / причина": ", ".join(p.dominated_by) or "; ".join(p.veto_reasons),
+            })
+        st.dataframe(pd.DataFrame(rows), width="stretch", hide_index=True)
+    st.caption(
+        "Доминирование считается только среди допустимых кандидатов по целям: "
+        + ", ".join(f"{'↑' if o.sense == 'max' else '↓'} {o.label}" for o in pareto_analysis.objectives)
+        + f". Запас вето по сере 2σ_S = {pareto_analysis.sulfur_offset_ppm:.2f} ppm; переочистка — прогноз серы ниже "
+        f"{pareto_analysis.giveaway_boundary_ppm:.2f} ppm (возраст измерения {pareto_analysis.sulfur_age_hours:.1f} ч)."
+    )

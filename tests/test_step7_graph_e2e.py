@@ -3,7 +3,7 @@
 Проверяет:
 1. Демо 1: Норма без лишних действий (после выхода на установившийся режим <= 2 действий из 50 тактов);
 2. Демо 2: Риск ухудшения качества (quality_risk_tags -> SUCCESS_CORRECTIVE, рецепт успешен,
-   сера смеси <= 9.5 ppm, T95 <= 358 °C, ЦЧ >= 51.5);
+   сера смеси <= 9.5 ppm, T95 товарного топлива <= 360 °C с запасом 2σ на ГО ДТ, ЦЧ >= 51.5);
 3. Демо 3: Деградация КИП/LIMS (degraded_tags -> SAFE_HOLD с дословным текстом ТЗ; D10=307 -> не Safe Hold);
 4. Демо 4: Полный цикл агентов (candidates, audit_reports, alternatives, confidence, разделы XAI);
 5. Производительность: p95 graph.invoke < 150 мс.
@@ -100,7 +100,7 @@ def test_e2e_quality_risk_scenario(graph, quality_risk_tags):
 
     # Проверка свойств товарного ДТ
     assert recipe.expected_sulfur <= 9.5
-    assert recipe.expected_t95 is None or recipe.expected_t95 <= 358.0
+    assert recipe.expected_t95 is None or recipe.expected_t95 <= 360.0 + 1e-6
     assert recipe.expected_cetane is None or recipe.expected_cetane >= 51.5
 
 

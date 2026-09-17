@@ -27,10 +27,6 @@
     "delta_d15_hdt": 11.1,
     "delta_t95_hdt": 6.0
   },
-  "limits": {
-    "sigma_s0_ppm": 1.532,
-    "sigma_flash_c": 4.302
-  },
   "economics": {
     "price_crude_oil": 41500.0,
     "price_straight_run": 52000.0,

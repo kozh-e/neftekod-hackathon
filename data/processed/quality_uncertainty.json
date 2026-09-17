@@ -1,0 +1,72 @@
+{
+  "sulfur": {
+    "sigma_train": 0.829,
+    "sigma_test": 0.833,
+    "n_train": 958,
+    "n_test": 454,
+    "median_age_h": 24.0,
+    "boundary_band_n": 174,
+    "boundary_realized_violation_pct": 1.15
+  },
+  "t95": {
+    "sigma_train": 5.665,
+    "sigma_test": 6.087,
+    "n_train": 894,
+    "n_test": 389,
+    "median_age_h": 24.0,
+    "boundary_band_n": 264,
+    "boundary_realized_violation_pct": 0.76,
+    "sigma0_backed_out": 3.271
+  },
+  "flash": {
+    "sigma_train": 4.781,
+    "sigma_test": 3.071,
+    "n_train": 1080,
+    "n_test": 430,
+    "median_age_h": 24.0,
+    "boundary_band_n": 474,
+    "boundary_realized_violation_pct": 1.48
+  },
+  "furnace": {
+    "n_hours": 30003,
+    "f31_median_tph": 540.7,
+    "dF30_dT55_tph_per_C": 0.068,
+    "dF30_dT55_se": 0.0066,
+    "dF30_dT55_by_subperiod": {
+      "train": -0.166,
+      "test": 0.427,
+      "2023": 1.574,
+      "2024": -0.213,
+      "2025": -0.283,
+      "2026": 0.415
+    },
+    "dF30_dT55_range": [
+      -0.283,
+      1.574
+    ],
+    "dF32_dT55_tph_per_C": 0.1909,
+    "dF32_dT55_se": 0.0047,
+    "dF32_dT55_by_subperiod": {
+      "train": 0.183,
+      "test": 0.192,
+      "2023": -0.119,
+      "2024": 0.132,
+      "2025": -0.292,
+      "2026": 0.201
+    },
+    "dF32_dT55_range": [
+      -0.292,
+      0.201
+    ]
+  },
+  "giveaway": {
+    "k_rub_h_per_ppm": 2300.1,
+    "loss_range_rub_t": [
+      1848.0,
+      16000.0
+    ],
+    "z_min": 3.31,
+    "alpha_min_pct": 0.046,
+    "max_regret_rub_h": 474.0
+  }
+}

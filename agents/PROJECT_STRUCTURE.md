@@ -26,10 +26,12 @@ Main source code for the MES/APC system.
   - `tanks.py`: Component storage tank models with ideal mixing and stock tracking.
   - `decision_log.py`: Structured JSONL decision audit logger for operational tracking.
   - `auditors.py`: Parallel safety and quality auditors. `ReliabilityAgent` monitors equipment limits (`AVT_T55`, `HT_P8`, `AVT_P52`, `AVT_F31`, `HT_GOR`, `FEED_TO_AVT`). `QualityAgent` performs statistical checks on sulfur ($\hat S + z \sigma_S \le 10.0$ ppm), flash, T95, and downstream recipe feasibility.
+  - `pareto.py`: Pareto analysis of admissible candidates (graph node between auditors and arbitration): fast non-dominated sorting (Deb 2002) over net margin, sulfur giveaway (minimax boundary) and catalyst WABT; vetoed candidates excluded before ranking; nearest trade-off alternatives (safer sulfur / gentler catalyst) with transition price; XAI summary and Plotly figures (3D, 2D projection, parallel coordinates).
+  - `scenarios.py`: Input states of the 4 mandatory TZ demo scenarios (§7.2) shared by replay, tests and UI.
   - `arbitration.py`: Two-stage hybrid arbitration node with corrective clearing (`SUCCESS_CORRECTIVE`), normalized step norm, dynamic deadband configuration, and alternative evaluation.
   - `safe_hold.py`: Safe hold state handler (sets $\Delta \mathbf{u} = \mathbf{0}$, returns formal dispatch explanation).
   - `blending.py`: 3-component tank blending LP optimizer (hydrotreated diesel, kerosene, gasoil) with additives A & B, stock limits, and mass-based sulfur blending. Backward-compatible `solve_recipe()` wrapper.
-  - `lims.py`: LIMS delay compensator (retrospective error, exponential bias decay $T_{1/2} = 12$ h, first-order filter $\tau = 30$ min, calibrated $\sigma_{S0} = 1.19$ ppm).
+  - `lims.py`: LIMS delay compensator (retrospective error, exponential bias decay $T_{1/2} = 12$ h, first-order filter $\tau = 30$ min, defaults aligned with ADR-12 constants $z = 2$, $\sigma_{S0} = 0.83$ ppm) and `lims_age_from_state()` helper.
   - `data_guard.py`: Telemetry data validation (stuck sensors, missing values, critical tag clamping, confidence scoring).
   - `anti_windup.py`: Anti-windup protection for control setpoints.
 
@@ -42,6 +44,7 @@ Main source code for the MES/APC system.
   - `product.py`: Hydrotreated product property calculation (density, T95, CFPP, cetane number).
   - `chain.py`: Full chain digital twin (`FullChainTwin`) combining static unit models, FOPDT dynamics, and measurement bias assimilation.
   - `session.py`: Session store for digital twins (`TwinSessionStore`) preserving inertia between control cycles.
+  - `plant.py`: `PlantSimulator` — dynamically consistent plant emulator (separate twin instance) for closed-loop scenario replay and tests.
   - `fopdt.py`: First Order Plus Dead Time dynamic filters (`FirstOrderDeadTime`).
   - `vak.py`: 17 official Virtual Analyzer of Quality (VAK) regression models matching `new_data/формулы_ВАК.xlsx`.
 
@@ -72,7 +75,8 @@ Raw source datasets, engineering diagrams, and official registers.
 ### scripts/
 Offline calibration, scenario replay, and validation tools.
 - `scripts/calibrate_twin.py`: Offline grey-box model calibration on historical train/test split.
-- `scripts/replay_scenarios.py`: Scenario replay harness through LangGraph.
+- `scripts/replay_scenarios.py`: Scenario replay harness through LangGraph (scenario 1 on `PlantSimulator`, scenario 4 per TZ furnace conflict).
+- `scripts/estimate_quality_uncertainty.py`: TZ-method estimation of quality uncertainty (sulfur, T95, flash), furnace-to-draw response and giveaway boundary -> `data/processed/quality_uncertainty.json`.
 
 ### config/
 Committed configuration and calibrated parameter stores.
@@ -81,10 +85,12 @@ Committed configuration and calibrated parameter stores.
 ### tests/
 Pytest test suite covering all modules:
 - Unit tests: tags, official VAK, kinetics, stabilizer, chain twin, rollout optimizer, audit/arbitration, blending, graph e2e.
+- `test_step8_pareto.py`: Pareto core vs brute force and ZDT1, Safety Ladder, sulfur 2σ and giveaway axis, trade-off alternatives, graph/API/decision-log integration, Plotly figures, latency.
+- `test_step9_tz_compliance.py`: ADR-12 constants vs estimation report, furnace warning-zone veto, commercial-fuel T95 check, furnace twin/economics, TZ scenarios 1/3/4 (scenario 1 on `PlantSimulator`).
 
 ### agents/
 Instructions, prompts, domain knowledge, and architectural plans for AI agents.
 - `DOMAIN_KNOWLEDGE.md`: Engineering handbook covering ESD limits, Euro-5 norms, blending math, and LIMS models.
 - `ASSUMPTIONS.md`: Comprehensive engineering register of all model and equipment assumptions (ASSUMPTION provenance), rationale, and boundary rule mapping.
-- `implementation_plan_v2.md`: Comprehensive v2 architectural plan, empirical audit, and low-level task specifications.
+- `implementation_plan_v2.md`: Historical v2 architectural plan, empirical audit, and low-level task specifications (current decisions: `ASSUMPTIONS.md`).
 - `PROJECT_STRUCTURE.md`: This directory map.
