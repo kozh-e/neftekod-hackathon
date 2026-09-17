@@ -4,8 +4,8 @@
 1. quality_risk_tags -> hold нарушает серу на установившемся режиме; есть допустимый
    корректирующий кандидат -> статус SUCCESS_CORRECTIVE;
 2. Кандидат, ухудшающий переходный процесс сверх предела относительно hold, ветируется с причиной;
-3. Статистический буфер серы: S_hat = 8.43, sigma = 1.19, z = 1.645 -> 10.39 > 10 -> hold нарушает;
-   при z = 1.0 -> 9.62 <= 10 -> не нарушает;
+3. Статистический буфер серы (ADR-12): S_hat = 8.43, sigma = SIGMA_S0_PPM (0.83), z = QUALITY_Z (2, tz:598)
+   -> 10.09 > 10 -> hold нарушает; при z = 1.0 -> 9.26 <= 10 -> не нарушает;
 4. Смещение растет с возрастом ЛИМС при недоступном HT_Q21;
 5. Недопустимый ход сырья (+25 т/ч) вызывает вето по вспышке или FEED_TO_AVT с указанием причины;
 6. audit_reports содержит отчет и причину для каждого заблокированного кандидата;
@@ -72,29 +72,30 @@ def test_worsens_transient_veto():
 
 
 def test_statistical_buffer_z_threshold():
-    """3. S_hat = 8.43, sigma = 1.19. z=1.645 -> 10.39 > 10 (нарушение); z=1.0 -> 9.62 <= 10 (норма)."""
+    """3. S_hat = 8.43, sigma = 0.83. z=2 (tz:598) -> 10.09 > 10 (нарушение); z=1.0 -> 9.26 <= 10 (норма)."""
     s_hat = 8.43
-    sigma0 = 1.19
+    sigma0 = SIGMA_S0_PPM
+    assert (QUALITY_Z, SIGMA_S0_PPM) == (2.0, 0.83)
 
-    # z = 1.645
-    off_1645 = stat_offset(sigma0, age_h=0.0, z=1.645)
-    eff_1645 = s_hat + off_1645
-    assert eff_1645 == pytest.approx(10.39, abs=0.01)
-    ass_1645 = assess_limit("HT_S_PRODUCT", None, s_hat, None, limit=10.0, sense="max", offset=off_1645)
-    assert ass_1645.vetoed is True
+    # z = 2 (промпт Агента Качества)
+    off_2 = stat_offset(sigma0, age_h=0.0, z=QUALITY_Z)
+    eff_2 = s_hat + off_2
+    assert eff_2 == pytest.approx(10.09, abs=0.01)
+    ass_2 = assess_limit("HT_S_PRODUCT", None, s_hat, None, limit=10.0, sense="max", offset=off_2)
+    assert ass_2.vetoed is True
 
     # z = 1.0
     off_10 = stat_offset(sigma0, age_h=0.0, z=1.0)
     eff_10 = s_hat + off_10
-    assert eff_10 == pytest.approx(9.62, abs=0.01)
+    assert eff_10 == pytest.approx(9.26, abs=0.01)
     ass_10 = assess_limit("HT_S_PRODUCT", None, s_hat, None, limit=10.0, sense="max", offset=off_10)
     assert ass_10.vetoed is False
 
 
 def test_offset_grows_with_lims_age():
     """4. Смещение растет с возрастом ЛИМС при недоступном HT_Q21."""
-    sigma0 = 1.19
-    z = 1.645
+    sigma0 = SIGMA_S0_PPM
+    z = QUALITY_Z
 
     off_0h = stat_offset(sigma0, age_h=0.0, z=z)
     off_4h = stat_offset(sigma0, age_h=4.0, z=z)

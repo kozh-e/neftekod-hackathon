@@ -85,10 +85,12 @@ Committed configuration and calibrated parameter stores.
 ### tests/
 Pytest test suite covering all modules:
 - Unit tests: tags, official VAK, kinetics, stabilizer, chain twin, rollout optimizer, audit/arbitration, blending, graph e2e.
+- `test_step8_pareto.py`: Pareto core vs brute force and ZDT1, Safety Ladder, sulfur 2σ and giveaway axis, trade-off alternatives, graph/API/decision-log integration, Plotly figures, latency.
+- `test_step9_tz_compliance.py`: ADR-12 constants vs estimation report, furnace warning-zone veto, commercial-fuel T95 check, furnace twin/economics, TZ scenarios 1/3/4 (scenario 1 on `PlantSimulator`).
 
 ### agents/
 Instructions, prompts, domain knowledge, and architectural plans for AI agents.
 - `DOMAIN_KNOWLEDGE.md`: Engineering handbook covering ESD limits, Euro-5 norms, blending math, and LIMS models.
 - `ASSUMPTIONS.md`: Comprehensive engineering register of all model and equipment assumptions (ASSUMPTION provenance), rationale, and boundary rule mapping.
-- `implementation_plan_v2.md`: Comprehensive v2 architectural plan, empirical audit, and low-level task specifications.
+- `implementation_plan_v2.md`: Historical v2 architectural plan, empirical audit, and low-level task specifications (current decisions: `ASSUMPTIONS.md`).
 - `PROJECT_STRUCTURE.md`: This directory map.

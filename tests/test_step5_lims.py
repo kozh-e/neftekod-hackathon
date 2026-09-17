@@ -5,7 +5,7 @@
 2. Расчет ретроспективной ошибки (инновации) ВАК и LIMS.
 3. Экспоненциальное затухание смещения (Bias Decay, T_half = 12 ч).
 4. Безударный перенос (Bumpless Transfer, tau = 30 мин).
-5. Расчет верхней доверительной границы UCB (95% = +1.96 * sigma_t).
+5. Расчет верхней доверительной границы UCB (+z * sigma_t, по умолчанию z = QUALITY_Z = 2, tz:598).
 6. Сброс и защиту от нефизичных значений.
 """
 
@@ -100,8 +100,8 @@ def test_lims_ucb_uncertainty_growth():
     # 24 часа без анализов (1440 мин)
     _, ucb_old = compensator.get_corrected_vak(current_vak, minutes_since_last_lims=1440.0)
 
-    # При 24 часах uncertainty_multiplier = 1 + 1 = 2.0, sigma = 0.6 -> +1.96 * 0.6 = +1.176
-    # При 0 часов uncertainty_multiplier = 1.0, sigma = 0.3 -> +1.96 * 0.3 = +0.588
+    # При 24 часах uncertainty_multiplier = 1 + 1 = 2.0, sigma = 0.6 -> +z * 0.6
+    # При 0 часов uncertainty_multiplier = 1.0, sigma = 0.3 -> +z * 0.3 (z = QUALITY_Z = 2)
     assert ucb_old > ucb_fresh
     delta_fresh = ucb_fresh - current_vak
     delta_old = ucb_old - current_vak
