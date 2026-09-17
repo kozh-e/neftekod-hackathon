@@ -1,0 +1,48 @@
+{
+  "metadata": {
+    "recorded_at": "2026-09-17T15:30:17.332164",
+    "graph_version": "MVP Graph (legacy v2 before refactoring)",
+    "simulator_version": "PlantSimulator v2",
+    "description": "Базовые показатели качества, безопасности и экономики до рефакторинга ядра МАС"
+  },
+  "kpis": {
+    "t1_violations_by_truth_count": 115,
+    "fraction_cycles_sulfur_gt_10ppm_truth_s2": 0.0,
+    "fraction_cycles_sulfur_gt_10ppm_truth_s7": 0.0,
+    "frozen_in_violation_cycles_count": 1,
+    "excess_moves_in_normal_pct": 0.0,
+    "utility_gap_pct": 8.0,
+    "steady_state_flash_margin_violation": true,
+    "steady_state_flash_effective_c": 54.190400019734696,
+    "p50_cycle_time_ms": 25.13,
+    "p95_cycle_time_ms": 33.59,
+    "p99_cycle_time_ms": 48.18
+  },
+  "scenarios": {
+    "s1_normal": {
+      "converge_moves": 12,
+      "monitoring_steps": 50,
+      "excess_actions": 0,
+      "excess_action_pct": 0.0,
+      "flash_truth_c": 63.7504000197347,
+      "flash_effective_c": 54.190400019734696
+    },
+    "s2_quality_risk": {
+      "steps": 20,
+      "sulfur_gt_10_count": 0,
+      "fraction_gt_10": 0.0,
+      "frozen_in_violation_count": 0
+    },
+    "s5_equipment_envelope": {
+      "status": "SAFE_HOLD_EMPTY_ADMISSIBLE",
+      "delta_u": {},
+      "frozen_in_violation": true
+    },
+    "s7_model_mismatch": {
+      "seeds_count": 10,
+      "total_cycles": 100,
+      "total_sulfur_gt_10": 0,
+      "fraction_gt_10": 0.0
+    }
+  }
+}

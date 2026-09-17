@@ -1,0 +1,141 @@
+{
+  "metadata": {
+    "recorded_at": "2026-09-17T19:06:44.795098",
+    "graph_version": "Core Graph v3 (Decentralized MAS with Bilateral Negotiation)",
+    "simulator_version": "PlantSimulator v2",
+    "description": "Итоговые показатели качества, безопасности и экономики после модернизации МАС"
+  },
+  "kpis": {
+    "t1_violations_by_truth_count": 60,
+    "fraction_cycles_sulfur_gt_10ppm_truth_s2": 0.0,
+    "fraction_cycles_sulfur_gt_10ppm_truth_s7": 0.0,
+    "frozen_in_violation_cycles_count": 0,
+    "excess_moves_in_normal_pct": 100.0,
+    "utility_gap_pct": 0.28,
+    "steady_state_flash_margin_violation": true,
+    "steady_state_flash_effective_c": 54.91656379706902,
+    "p50_cycle_time_ms": 939.37,
+    "p95_cycle_time_ms": 1129.3,
+    "p99_cycle_time_ms": 1147.82,
+    "safety_kernel_failures_s1_s8": 0
+  },
+  "scenarios": {
+    "s1_normal": {
+      "converge_moves": 15,
+      "monitoring_steps": 50,
+      "excess_actions": 50,
+      "excess_action_pct": 100.0,
+      "t1_violations_count": 33,
+      "steady_state_flash_c": 64.47656379706902,
+      "effective_flash_c": 54.91656379706902,
+      "steady_state_flash_margin_violation": true,
+      "utility_gap_pct": 0.28,
+      "latencies_ms": [
+        1038.7449999980163,
+        1037.8972080070525,
+        1032.1220420009922,
+        1129.325832996983,
+        1129.2576669948176,
+        1156.8377080111532,
+        1138.426541001536,
+        1083.1034169968916,
+        1041.614917005063,
+        1063.5651250049705,
+        1049.3196250026813,
+        1039.0196660009678,
+        1039.2719170049531,
+        1039.9915409943787,
+        1020.5577090091538,
+        1048.3454170025652,
+        1047.6249999919673,
+        1125.3520409954945,
+        1060.0132919935277,
+        1054.225416999543,
+        966.1264169990318,
+        896.7942089948338,
+        840.191416995367,
+        865.66604100517,
+        839.6875420003198,
+        991.7966250068275,
+        924.1706249886192,
+        905.4960000066785,
+        860.6852079974487,
+        923.5124169936171,
+        863.2194590027211,
+        859.6950829960406,
+        906.0027910018107,
+        888.8395000103628,
+        899.1379170038272,
+        908.6768749984913,
+        906.873749991064,
+        819.4201250007609,
+        817.9162920132512,
+        929.874875000678,
+        840.9972910012584,
+        846.3696660037385,
+        846.4008330047363,
+        857.6037080056267,
+        850.7226249930682,
+        934.3387910048477,
+        944.4011250016047,
+        934.0397080086404,
+        1097.9832080047345,
+        1124.346709009842
+      ]
+    },
+    "s2_quality_risk": {
+      "steps": 20,
+      "recovery_step": 3,
+      "sulfur_gt_10_count": 0,
+      "fraction_cycles_sulfur_gt_10": 0.0,
+      "frozen_in_violation_count": 0,
+      "t1_violations_count": 17,
+      "feed_increased_during_risk": false
+    },
+    "s3_data_degradation": {
+      "s3a_ok": true,
+      "s3b_mode": "UNKNOWN",
+      "s3c_detected": false,
+      "s3d_refusal": true,
+      "s3e_no_feed_growth": true,
+      "passed": false
+    },
+    "s4_agent_negotiation": {
+      "candidates_count": 51,
+      "veto_count": 0,
+      "has_counterproposal": true,
+      "kernel_passed": true,
+      "status": "SUCCESS_CORRECTIVE"
+    },
+    "s5_equipment_envelope": {
+      "status": "RECOVERY_ADVISORY",
+      "delta_u": {
+        "HT_FEED_SP": -0.2754,
+        "HT_TIN_SP": 0.2986,
+        "HT_P_SP": 0.0153,
+        "HT_GOR_SP": 0.0559,
+        "AVT_T55_SP": -1.0386
+      },
+      "frozen_in_violation": false,
+      "cooling_command": true
+    },
+    "s6_blending_deficit": {
+      "status": "SUCCESS_CORRECTIVE",
+      "hydrotreating_active": true,
+      "elastic_blending": true
+    },
+    "s7_model_mismatch": {
+      "seeds_count": 5,
+      "total_cycles": 25,
+      "total_sulfur_gt_10": 0,
+      "fraction_cycles_sulfur_gt_10": 0.0,
+      "total_t1_violations": 10,
+      "utility_gap_pct": 1.8
+    },
+    "s8_pak_failure": {
+      "detected": false,
+      "no_economic_increase": true,
+      "passed": false
+    }
+  }
+}
