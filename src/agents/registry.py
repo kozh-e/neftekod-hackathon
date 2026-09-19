@@ -716,6 +716,33 @@ REGISTRY_BY_KEY: dict[str, ConstraintSpec] = {spec.key: spec for spec in ALL_SPE
 REGISTRY: dict[str, ConstraintSpec] = REGISTRY_BY_KEY
 
 
+class RegistryAdapter:
+    """Адаптер над ALL_SPECS, предоставляющий интерфейс mv_lo/mv_hi/mv_max_move/applicable
+    независимому ядру безопасности (SafetyKernel.verify) — единственный источник для проверок
+    T0.bounds/T0.rate и независимой проверки оборудования/качества (§5 kernel.py)."""
+
+    def __init__(self, specs: Sequence[ConstraintSpec]) -> None:
+        self.specs = specs
+        self.mv_lo: Dict[str, float] = {}
+        self.mv_hi: Dict[str, float] = {}
+        self.mv_max_move: Dict[str, float] = {}
+        for s in specs:
+            if s.key.startswith("MV.") and s.key.endswith(".MIN"):
+                self.mv_lo[s.quantity] = s.limit
+            elif s.key.startswith("MV.") and s.key.endswith(".MAX"):
+                self.mv_hi[s.quantity] = s.limit
+            elif s.key.startswith("RATE.") and s.key.endswith(".MAX"):
+                mv_name = s.quantity.replace("RATE.", "")
+                self.mv_max_move[mv_name] = s.limit
+
+    def applicable(self, delta_u: Dict[str, float]) -> List[ConstraintSpec]:
+        changed = {k for k, du in delta_u.items() if abs(du) > 1e-4}
+        return [s for s in self.specs if s.depends_on & changed]
+
+
+REGISTRY_ADAPTER = RegistryAdapter(ALL_SPECS)
+
+
 def get_constraint(key: str) -> ConstraintSpec:
     """Возвращает спецификацию ограничения по ключу."""
     if key not in REGISTRY_BY_KEY:

@@ -92,6 +92,7 @@ class CoreState(TypedDict, total=False):
     session_id: str                        # идентификатор сессии двойника
     tanks: dict[str, Any]
     data: DataAssessment
+    confidence: dict[str, Any]              # индекс уверенности для UI пульта (§B1 аудита консоли), не участвует в T0-T3/маршрутизации
     estimate: PlantEstimate
     round: int
     frontier: list[str]                    # список сигнатур для текущего раунда

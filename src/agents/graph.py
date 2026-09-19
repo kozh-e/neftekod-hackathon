@@ -110,6 +110,7 @@ def build_mvp_graph() -> CompiledStateGraph:
 
 import datetime
 import hashlib
+import math
 import time
 import uuid
 from typing import Dict, List, Literal, Optional
@@ -126,7 +127,14 @@ from src.agents.contracts import (
     PlantEstimate,
     Tier,
 )
-from src.agents.data_guard import assess_data
+from src.agents.data_guard import (
+    CLAMPING_VALUES,
+    CRITICAL_TAGS,
+    Q21_MAX_PLAUSIBLE_PPM,
+    assess_data,
+    compute_confidence,
+)
+from src.twin.tags import fill_from_nominal, normalize_tags
 from src.agents.decision_store import save_decision_trace
 from src.agents.estimation import StateEstimator
 from src.agents.generator import hold, signature_of
@@ -148,10 +156,28 @@ from src.agents.arbitration import (
     TZ_REFUSAL_NO_SAFE_ACTION_TEXT,
 )
 from src.agents.policy import PolicyConfig
-from src.agents.registry import ALL_SPECS
+from src.agents.registry import REGISTRY_ADAPTER
 from src.safety_kernel.kernel import SafetyKernel
 from src.agents.state import CoreState
 from src.agents.state_legacy import FinalRecommendation
+from src.agents.twin_view import TwinView
+from src.twin.chain import FullChainTwin
+from src.twin.params import load_params
+
+
+class _KernelTwinAdapter:
+    """Даёт twin_factory ядра безопасности (SafetyKernel.verify) интерфейс .steady_state(u1)
+    поверх TwinView, чтобы независимая проверка использовала те же калибровочные поправки
+    PlantEstimate (§5 kernel.py), что и агенты качества/надёжности (quality.py, reliability.py) —
+    без этого сырой FullChainTwin.steady_state() даёт несопоставимо другие значения (проверено
+    эмпирически: разница в предсказании HT_FLASH могла достигать ~10 °C)."""
+
+    def __init__(self, twin_view: TwinView) -> None:
+        self._tv = twin_view
+
+    def steady_state(self, u1: dict) -> dict:
+        raw_ss = self._tv.twin.steady_state(u1)
+        return self._tv._apply_corrections(raw_ss)
 
 
 def node_ingest(state: CoreState) -> dict:
@@ -178,8 +204,36 @@ def node_data_guard_core(state: CoreState) -> dict:
     raw_tags = state.get("raw_tags") or {}
     policy = state.get("policy") or PolicyConfig()
     assessment = assess_data(raw_tags, policy=policy)
+
+    # Индекс уверенности (§B1 аудита консоли): наблюдаемое поле для UI пульта,
+    # не влияет на assessment/маршрутизацию выше. Величины n_filled_critical/
+    # q21_unavailable/lims_age считаются тем же способом, что и в
+    # node_data_quality_guard (src/agents/data_guard.py), формула не меняется —
+    # см. compute_confidence.
+    norm_tags, _norm_warnings = normalize_tags(raw_tags)
+    norm_tags, _fill_warnings = fill_from_nominal(norm_tags, CRITICAL_TAGS)
+    n_filled_critical = len([w for w in _fill_warnings if w.startswith("FILLED:")])
+
+    lims_age = float(raw_tags.get("lims_age_hours", 0.0))
+
+    q21_val = norm_tags.get("HT_Q21")
+    q21_is_spike = False
+    if isinstance(q21_val, (int, float)) and not math.isnan(q21_val):
+        q21_val_f = float(q21_val)
+        if q21_val_f in CLAMPING_VALUES or q21_val_f > Q21_MAX_PLAUSIBLE_PPM:
+            q21_is_spike = True
+    q21_unavailable = (
+        q21_val is None
+        or not isinstance(q21_val, (int, float))
+        or math.isnan(q21_val)
+        or q21_is_spike
+    )
+
+    confidence = compute_confidence(n_filled_critical, q21_unavailable, lims_age)
+
     return {
         "data": assessment,
+        "confidence": confidence,
         "timings_ms": {"data_guard": round((time.perf_counter() - t_start) * 1000, 2)},
     }
 
@@ -234,8 +288,14 @@ def node_safety_kernel(state: CoreState) -> dict:
         decision=decision,
         estimate=estimate,
         data=data,
-        registry=ALL_SPECS,
+        registry=REGISTRY_ADAPTER,
         policy=policy,
+        # Без twin_factory проверки T0.bounds/T0.rate и независимая проверка
+        # оборудования/качества (§5 kernel.py, GODT.FLASH_MIN и др.) молча не выполняются
+        # (registry без mv_lo/mv_hi/mv_max_move/applicable, twin_factory отсутствует).
+        twin_factory=lambda est: _KernelTwinAdapter(
+            TwinView(twin=FullChainTwin(load_params()), estimate=est, policy=policy)
+        ),
     )
 
     events: List[NegotiationEvent] = []

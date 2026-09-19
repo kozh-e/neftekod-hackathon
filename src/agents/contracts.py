@@ -257,7 +257,8 @@ class Prediction(Frozen):
 class NegotiationEvent(Frozen):
     round: int
     kind: Literal["PROPOSED", "CERTIFIED", "REPAIR_PROPOSED", "REPAIR_COMPOSED",
-                  "BEST_UPDATED", "CONVERGED", "NO_NEW_CANDIDATES", "BUDGET_EXHAUSTED"]
+                  "BEST_UPDATED", "CONVERGED", "NO_NEW_CANDIDATES", "BUDGET_EXHAUSTED",
+                  "KERNEL_OVERRIDE"]
     actor: str
     candidate: str | None = None
     detail: str = ""

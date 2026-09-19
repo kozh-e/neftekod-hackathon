@@ -166,7 +166,11 @@ class SafetyKernel:
                     if val is not None:
                         eff_val = independent_effective_value(sp, estimate, float(val), pol)
                         if decision.status in (DecisionStatus.SUCCESS, DecisionStatus.SUCCESS_CORRECTIVE):
-                            if sp.sense == "max" and eff_val > sp.limit + 1e-4:
+                            if sp.key == "FURNACE.COT_POLICY_WARM":
+                                delta_t55 = decision.delta_u.get("AVT_T55_SP", 0.0)
+                                if delta_t55 > 1e-4 and eff_val > sp.limit + 1e-4:
+                                    checks.append(check(f"{sp.key}", False, f"{eff_val:.2f} > limit {sp.limit}"))
+                            elif sp.sense == "max" and eff_val > sp.limit + 1e-4:
                                 checks.append(check(f"{sp.key}", False, f"{eff_val:.2f} > limit {sp.limit}"))
                             elif sp.sense == "min" and eff_val < sp.limit - 1e-4:
                                 checks.append(check(f"{sp.key}", False, f"{eff_val:.2f} < limit {sp.limit}"))

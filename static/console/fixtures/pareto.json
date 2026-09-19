@@ -1,0 +1,130 @@
+{
+  "objectives": [
+    {
+      "key": "net_margin",
+      "label": "Чистая маржа к hold",
+      "unit": "руб/ч",
+      "sense": "max",
+      "limit": null
+    },
+    {
+      "key": "sulfur_giveaway",
+      "label": "Переочистка по сере",
+      "unit": "ppm",
+      "sense": "min",
+      "limit": null
+    },
+    {
+      "key": "bed_temperature",
+      "label": "WABT слоя Р-202",
+      "unit": "°C",
+      "sense": "min",
+      "limit": 390.0
+    },
+    {
+      "key": "sulfur_ucb",
+      "label": "Сера Ŝ + 2σ",
+      "unit": "ppm",
+      "sense": "min",
+      "limit": 10.0
+    },
+    {
+      "key": "reactor_dp",
+      "label": "Перепад давления Р-202",
+      "unit": "кПа",
+      "sense": "min",
+      "limit": 250.0
+    }
+  ],
+  "points": [
+    {
+      "candidate_id": "hold",
+      "is_hold": true,
+      "is_recommendation": false,
+      "status": "dominated",
+      "metrics": {
+        "net_margin": 0.0,
+        "sulfur_giveaway": 1.2,
+        "bed_temperature": 372.0,
+        "sulfur_ucb": 8.5,
+        "reactor_dp": 160.0
+      },
+      "delta_u": {},
+      "veto_reasons": [],
+      "dominated_by": ["cand_selected"]
+    },
+    {
+      "candidate_id": "cand_selected",
+      "is_hold": false,
+      "is_recommendation": true,
+      "status": "pareto",
+      "metrics": {
+        "net_margin": 18400.0,
+        "sulfur_giveaway": 0.4,
+        "bed_temperature": 374.5,
+        "sulfur_ucb": 9.2,
+        "reactor_dp": 165.0
+      },
+      "delta_u": {
+        "HT_FEED_SP": 2.1
+      },
+      "veto_reasons": [],
+      "dominated_by": []
+    },
+    {
+      "candidate_id": "cand_safety",
+      "is_hold": false,
+      "is_recommendation": false,
+      "status": "pareto",
+      "metrics": {
+        "net_margin": 9500.0,
+        "sulfur_giveaway": 0.8,
+        "bed_temperature": 373.0,
+        "sulfur_ucb": 8.7,
+        "reactor_dp": 162.0
+      },
+      "delta_u": {
+        "HT_FEED_SP": 1.0,
+        "HT_TIN_SP": 0.5
+      },
+      "veto_reasons": [],
+      "dominated_by": []
+    },
+    {
+      "candidate_id": "cand_aggressive",
+      "is_hold": false,
+      "is_recommendation": false,
+      "status": "vetoed",
+      "metrics": {
+        "net_margin": 31000.0,
+        "sulfur_giveaway": 0.0,
+        "bed_temperature": 379.0,
+        "sulfur_ucb": 10.4,
+        "reactor_dp": 180.0
+      },
+      "delta_u": {
+        "HT_FEED_SP": 6.0
+      },
+      "veto_reasons": [
+        "Прогноз серы Ŝ+2σ > 10 ppm (Агент Качества)"
+      ],
+      "dominated_by": []
+    }
+  ],
+  "ideal": {
+    "net_margin": 31000.0,
+    "sulfur_giveaway": 0.0,
+    "bed_temperature": 372.0,
+    "sulfur_ucb": 8.5,
+    "reactor_dp": 160.0
+  },
+  "nadir": {
+    "net_margin": 0.0,
+    "sulfur_giveaway": 1.2,
+    "bed_temperature": 379.0,
+    "sulfur_ucb": 10.4,
+    "reactor_dp": 180.0
+  },
+  "hold_id": "hold",
+  "selected_id": "cand_selected"
+}

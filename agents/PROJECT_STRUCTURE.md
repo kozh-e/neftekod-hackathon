@@ -5,10 +5,9 @@ Repository directory structure and file map for AI agents and engineering teams.
 ## Root Files
 - AGENTS.md: System prompt, expert analyst role, domain rules, and workflow tasks.
 - README.md: Overview of the MES/APC project, service endpoints, and launch instructions.
-- main.py: FastAPI application with endpoints `/api/v1/optimize` (with session support) and `/api/v1/health`.
-- streamlit_app.py: Entry point for the Streamlit dispatcher console.
+- main.py: FastAPI application with endpoints `/api/v1/optimize` (with session support), `/api/v1/health`, and the operator console router/static mount (`/api/console`, `/console`).
 - Dockerfile: Container build based on `python:3.12-slim`.
-- docker-compose.yml: Orchestration for API, Streamlit UI, and automated test services.
+- docker-compose.yml: Orchestration for the API/console service and automated test services. The Streamlit UI (`streamlit_app.py`, `src/ui/app.py`) was removed; the operator console at `/console` is now the sole web UI (see `agents/console_tz/`).
 - requirements.txt: Python package dependencies.
 - start.sh: Quick launch script for Docker services.
 
@@ -75,8 +74,7 @@ Main source code for the MES/APC system.
   - `card.py`: Deterministic 7-block XAI decision card generator (§5 ТЗ) providing comprehensive justification, Provenance traceability, constraint margins, alternative ranking, and operator advisory.
   - `narrative.py`: Deterministic operator explanations in Russian based on physics, dynamic predictions, rejected alternatives, confidence level, and model assumptions.
 
-- **src/ui/**: Operator interface (Human-in-the-Loop).
-  - `app.py`: Streamlit dashboard displaying official unit telemetry, arbitration decisions, dynamic forecast charts, recipe cards, alternative tables, interactive market pricing & tariff control panel, approval controls, and interactive LLM Supervisor panel.
+- **src/console/**: Operator console backend (`/api/console`), serving `static/console/` (HTML/JS/ECharts, no build step). Replaces the removed Streamlit UI as the sole operator/engineering web interface. See `agents/console_tz/` for the spec and `STATUS.md` for what has shipped.
 
 - **src/supervisor/**: Asynchronous LLM Supervisor on OpenAI API for local Qwen 27B/32B (Stage P4, Gate G4).
   - `cassettes.py`: Deterministic cassette storage (`CassetteStore`), request fingerprinting (`calculate_fingerprint` via SHA-256), cassette persistence in `data/llm_cassettes/`.

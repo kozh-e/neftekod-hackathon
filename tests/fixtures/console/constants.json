@@ -1,0 +1,432 @@
+[
+  {
+    "category": "T0: Границы и скорости хода (MV)",
+    "key": "MV.HT_FEED_SP.MIN",
+    "label": "Минимальный расход сырья 24-2000",
+    "value": 158.7,
+    "unit": "т/ч",
+    "provenance": "ASSUMPTION",
+    "source_ref": "agents/ASSUMPTIONS.md §1",
+    "description": "q05 рабочего расхода сырья ГО ДТ по историческим данным"
+  },
+  {
+    "category": "T0: Границы и скорости хода (MV)",
+    "key": "MV.HT_FEED_SP.MAX",
+    "label": "Максимальный расход сырья 24-2000",
+    "value": 252.8,
+    "unit": "т/ч",
+    "provenance": "ASSUMPTION",
+    "source_ref": "agents/ASSUMPTIONS.md §1",
+    "description": "q95 рабочего расхода сырья ГО ДТ по историческим данным"
+  },
+  {
+    "category": "T0: Границы и скорости хода (MV)",
+    "key": "RATE.HT_FEED_SP.MAX",
+    "label": "Макс. скорость хода сырья за такт",
+    "value": 3.0,
+    "unit": "т/ч / такт",
+    "provenance": "ASSUMPTION",
+    "source_ref": "agents/ASSUMPTIONS.md §1",
+    "description": "Ограничение скорости набора/сброса нагрузки реакторного блока"
+  },
+  {
+    "category": "T0: Границы и скорости хода (MV)",
+    "key": "MV.HT_TIN_SP.MIN",
+    "label": "Минимальная температура входа Р-202",
+    "value": 346.5,
+    "unit": "°C",
+    "provenance": "ASSUMPTION",
+    "source_ref": "agents/ASSUMPTIONS.md §1",
+    "description": "q05 температуры ГСС на входе в реактор Р-202"
+  },
+  {
+    "category": "T0: Границы и скорости хода (MV)",
+    "key": "MV.HT_TIN_SP.MAX",
+    "label": "Максимальная температура входа Р-202",
+    "value": 380.5,
+    "unit": "°C",
+    "provenance": "ASSUMPTION",
+    "source_ref": "agents/ASSUMPTIONS.md §1",
+    "description": "q95 температуры ГСС на входе в реактор Р-202"
+  },
+  {
+    "category": "T0: Границы и скорости хода (MV)",
+    "key": "RATE.HT_TIN_SP.MAX",
+    "label": "Макс. скорость изменения темп. входа Р-202",
+    "value": 3.0,
+    "unit": "°C / такт",
+    "provenance": "ASSUMPTION",
+    "source_ref": "agents/ASSUMPTIONS.md §1",
+    "description": "Термическая стойкость катализатора и теплообменников"
+  },
+  {
+    "category": "T0: Границы и скорости хода (MV)",
+    "key": "MV.HT_P_SP.MIN",
+    "label": "Минимальное давление сепарации Р-202",
+    "value": 3.755,
+    "unit": "МПа",
+    "provenance": "ASSUMPTION",
+    "source_ref": "agents/ASSUMPTIONS.md §1",
+    "description": "q05 рабочего давления реакторного блока"
+  },
+  {
+    "category": "T0: Границы и скорости хода (MV)",
+    "key": "MV.HT_P_SP.MAX",
+    "label": "Максимальное давление сепарации Р-202",
+    "value": 4.009,
+    "unit": "МПа",
+    "provenance": "ASSUMPTION",
+    "source_ref": "agents/ASSUMPTIONS.md §1",
+    "description": "q95 рабочего давления реакторного блока"
+  },
+  {
+    "category": "T0: Границы и скорости хода (MV)",
+    "key": "RATE.HT_P_SP.MAX",
+    "label": "Макс. скорость изменения давления сепарации",
+    "value": 0.03,
+    "unit": "МПа / такт",
+    "provenance": "ASSUMPTION",
+    "source_ref": "agents/ASSUMPTIONS.md §1",
+    "description": "Гидравлическая устойчивость контура ВСГ"
+  },
+  {
+    "category": "T0: Границы и скорости хода (MV)",
+    "key": "MV.HT_GOR_SP.MIN",
+    "label": "Минимальная кратность ВСГ/сырье",
+    "value": 313.0,
+    "unit": "нм³/м³",
+    "provenance": "ASSUMPTION",
+    "source_ref": "agents/ASSUMPTIONS.md §1",
+    "description": "q05 кратности циркуляции водородсодержащего газа"
+  },
+  {
+    "category": "T0: Границы и скорости хода (MV)",
+    "key": "MV.HT_GOR_SP.MAX",
+    "label": "Максимальная кратность ВСГ/сырье",
+    "value": 439.0,
+    "unit": "нм³/м³",
+    "provenance": "ASSUMPTION",
+    "source_ref": "agents/ASSUMPTIONS.md §1",
+    "description": "q95 кратности циркуляции водородсодержащего газа"
+  },
+  {
+    "category": "T0: Границы и скорости хода (MV)",
+    "key": "RATE.HT_GOR_SP.MAX",
+    "label": "Макс. скорость изменения кратности ВСГ",
+    "value": 15.0,
+    "unit": "нм³/м³ / такт",
+    "provenance": "ASSUMPTION",
+    "source_ref": "agents/ASSUMPTIONS.md §1",
+    "description": "Предел перегрузки циркуляционного компрессора"
+  },
+  {
+    "category": "T0: Границы и скорости хода (MV)",
+    "key": "MV.AVT_T55_SP.MIN",
+    "label": "Минимальная температура перевала П-3",
+    "value": 375.0,
+    "unit": "°C",
+    "provenance": "NORM",
+    "source_ref": "ТЗ_нефтекод.docx §4",
+    "description": "Паспортный диапазон регулирования печи П-3 АВТ-6"
+  },
+  {
+    "category": "T0: Границы и скорости хода (MV)",
+    "key": "MV.AVT_T55_SP.MAX",
+    "label": "Максимальная температура перевала П-3",
+    "value": 385.0,
+    "unit": "°C",
+    "provenance": "POLICY",
+    "source_ref": "agents/ASSUMPTIONS.md §2.2",
+    "description": "Рабочая верхняя граница уставки печи П-3"
+  },
+  {
+    "category": "T0: Границы и скорости хода (MV)",
+    "key": "RATE.AVT_T55_SP.MAX",
+    "label": "Макс. скорость изменения уставки печи П-3",
+    "value": 2.0,
+    "unit": "°C / такт",
+    "provenance": "ASSUMPTION",
+    "source_ref": "agents/ASSUMPTIONS.md §2.2",
+    "description": "Инерционность футеровки и трубного змеевика печи П-3"
+  },
+  {
+    "category": "T1: Противоаварийная защита (ПАЗ/ESD)",
+    "key": "RX.DP_MAX",
+    "label": "Максимальный перепад давления Р-202",
+    "value": 400.0,
+    "unit": "кПа",
+    "provenance": "ASSUMPTION",
+    "source_ref": "agents/ASSUMPTIONS.md §1.2",
+    "description": "Предел смятия колосников и разрушения катализатора реактора"
+  },
+  {
+    "category": "T1: Противоаварийная защита (ПАЗ/ESD)",
+    "key": "RX.T_OUT_MAX",
+    "label": "Максимальная температура выхода слоя Р-202",
+    "value": 410.0,
+    "unit": "°C",
+    "provenance": "ASSUMPTION",
+    "source_ref": "agents/ASSUMPTIONS.md §1.2",
+    "description": "Предел термической стабильности катализатора и гидрокрекинга"
+  },
+  {
+    "category": "T1: Противоаварийная защита (ПАЗ/ESD)",
+    "key": "RX.DELTA_T_BED_MAX",
+    "label": "Максимальный экзотермический перепад в слое",
+    "value": 35.0,
+    "unit": "°C",
+    "provenance": "ASSUMPTION",
+    "source_ref": "agents/ASSUMPTIONS.md §1.2",
+    "description": "Защита от разгона экзотермической реакции гидрообессеривания"
+  },
+  {
+    "category": "T1: Противоаварийная защита (ПАЗ/ESD)",
+    "key": "FURNACE.COT_MAX",
+    "label": "ПАЗ: Температура перевала печи П-3",
+    "value": 395.0,
+    "unit": "°C",
+    "provenance": "NORM",
+    "source_ref": "ТЗ_нефтекод.docx §4",
+    "description": "Уставка срабатывания аварийной защиты ПАЗ печи П-3"
+  },
+  {
+    "category": "T1: Противоаварийная защита (ПАЗ/ESD)",
+    "key": "FURNACE.COT_POLICY_WARM",
+    "label": "Зона предупреждения нагрева печи П-3",
+    "value": 380.0,
+    "unit": "°C",
+    "provenance": "POLICY",
+    "source_ref": "agents/ASSUMPTIONS.md §2.2",
+    "description": "Антипаттерн 3 ТЗ: запрет нагрева выше 380 °C без консенсуса"
+  },
+  {
+    "category": "T1: Противоаварийная защита (ПАЗ/ESD)",
+    "key": "AVT.F31_MAX",
+    "label": "Максимальный расход топливного газа П-3",
+    "value": 550.0,
+    "unit": "кг/ч",
+    "provenance": "REGISTRY",
+    "source_ref": "Реестр КИПиА",
+    "description": "Тег AVT_F31: ограничение пропускной способности горелок"
+  },
+  {
+    "category": "T1: Противоаварийная защита (ПАЗ/ESD)",
+    "key": "AVT.P52_MIN",
+    "label": "Минимальное давление мазута на форсунках П-3",
+    "value": 0.05,
+    "unit": "МПа",
+    "provenance": "REGISTRY",
+    "source_ref": "Реестр КИПиА",
+    "description": "Тег AVT_P52: срыв факела печи при падении давления"
+  },
+  {
+    "category": "T2: Качество ГОСТ 32511-2013 (Евро-5)",
+    "key": "PRODUCT.S_MAX",
+    "label": "Массовая доля серы в товарном ДТ",
+    "value": 10.0,
+    "unit": "мг/кг",
+    "provenance": "NORM",
+    "source_ref": "ГОСТ 32511-2013 §4 (табл. 1)",
+    "description": "Жесткий норматив Евро-5 (экологический класс К5)"
+  },
+  {
+    "category": "T2: Качество ГОСТ 32511-2013 (Евро-5)",
+    "key": "GODT.S_MAX",
+    "label": "Сера в гидрогенизате ГО ДТ (внутренний предел)",
+    "value": 10.0,
+    "unit": "мг/кг",
+    "provenance": "POLICY",
+    "source_ref": "agents/DOMAIN_KNOWLEDGE.md §2.1",
+    "description": "Ограничение гидроочистки с учетом статистического запаса 2σ"
+  },
+  {
+    "category": "T2: Качество ГОСТ 32511-2013 (Евро-5)",
+    "key": "PRODUCT.FLASH_MIN",
+    "label": "Температура вспышки в закрытом тигле",
+    "value": 55.0,
+    "unit": "°C",
+    "provenance": "NORM",
+    "source_ref": "ГОСТ 32511-2013 §4 (табл. 1)",
+    "description": "Безопасность хранения и применения дизельного топлива"
+  },
+  {
+    "category": "T2: Качество ГОСТ 32511-2013 (Евро-5)",
+    "key": "GODT.FLASH_MIN",
+    "label": "Температура вспышки гидрогенизата",
+    "value": 55.0,
+    "unit": "°C",
+    "provenance": "POLICY",
+    "source_ref": "agents/DOMAIN_KNOWLEDGE.md §2.1",
+    "description": "Контроль отгона легких фракций в отпарной колонне К-201"
+  },
+  {
+    "category": "T2: Качество ГОСТ 32511-2013 (Евро-5)",
+    "key": "PRODUCT.E360_MIN",
+    "label": "Фракционный состав: доля до 360 °C",
+    "value": 95.0,
+    "unit": "% об.",
+    "provenance": "NORM",
+    "source_ref": "ГОСТ 32511-2013 §4 (табл. 1)",
+    "description": "ASTM D86 / ГОСТ 2177: полнота выкипания дизельного топлива"
+  },
+  {
+    "category": "T2: Качество ГОСТ 32511-2013 (Евро-5)",
+    "key": "PRODUCT.D15_MIN",
+    "label": "Минимальная плотность при 15 °C",
+    "value": 820.0,
+    "unit": "кг/м³",
+    "provenance": "NORM",
+    "source_ref": "ГОСТ 32511-2013 §4",
+    "description": "Нижняя паспортная граница плотности Евро-5"
+  },
+  {
+    "category": "T2: Качество ГОСТ 32511-2013 (Евро-5)",
+    "key": "PRODUCT.D15_MAX",
+    "label": "Максимальная плотность при 15 °C",
+    "value": 845.0,
+    "unit": "кг/м³",
+    "provenance": "NORM",
+    "source_ref": "ГОСТ 32511-2013 §4",
+    "description": "Верхняя паспортная граница плотности Евро-5"
+  },
+  {
+    "category": "T2: Качество ГОСТ 32511-2013 (Евро-5)",
+    "key": "PRODUCT.CN_MIN",
+    "label": "Цетановое число товарного ДТ",
+    "value": 51.0,
+    "unit": "ед.",
+    "provenance": "NORM",
+    "source_ref": "ГОСТ 32511-2013 §4",
+    "description": "Воспламеняемость топлива в цилиндрах дизельного двигателя"
+  },
+  {
+    "category": "T2: Качество ГОСТ 32511-2013 (Евро-5)",
+    "key": "PRODUCT.CFPP_MAX",
+    "label": "Предельная температура фильтруемости (сорт C)",
+    "value": -5.0,
+    "unit": "°C",
+    "provenance": "NORM",
+    "source_ref": "ГОСТ 32511-2013 §4",
+    "description": "Низкотемпературные свойства летнего дизельного топлива"
+  },
+  {
+    "category": "T3: Баланс сырья и смешение",
+    "key": "BUFFER.INVENTORY_MIN",
+    "label": "Минимальный запас буферного резервуара АВТ/ГО",
+    "value": 50.0,
+    "unit": "т",
+    "provenance": "ASSUMPTION",
+    "source_ref": "agents/ASSUMPTIONS.md §3.1",
+    "description": "Аварийный антикавитационный подпор насосов сырья Н-201"
+  },
+  {
+    "category": "T3: Баланс сырья и смешение",
+    "key": "BUFFER.INVENTORY_MAX",
+    "label": "Максимальная емкость буферного резервуара АВТ/ГО",
+    "value": 450.0,
+    "unit": "т",
+    "provenance": "ASSUMPTION",
+    "source_ref": "agents/ASSUMPTIONS.md §3.1",
+    "description": "Защита от переполнения промежуточного буфера прямогона"
+  },
+  {
+    "category": "T3: Баланс сырья и смешение",
+    "key": "BUFFER.FLOW_RATIO_TARGET",
+    "label": "Целевое отношение выработки АВТ к переработке ГО",
+    "value": 1.0,
+    "unit": "доля",
+    "provenance": "POLICY",
+    "source_ref": "agents/ASSUMPTIONS.md §3.1",
+    "description": "Удержание нулевого среднесуточного дисбаланса F30+F32 vs F9"
+  },
+  {
+    "category": "T3: Баланс сырья и смешение",
+    "key": "BLEND.KERO_SHARE_MAX",
+    "label": "Максимальная доля прямогонного керосина",
+    "value": 0.25,
+    "unit": "доля",
+    "provenance": "ASSUMPTION",
+    "source_ref": "agents/DOMAIN_KNOWLEDGE.md §3.2",
+    "description": "Предел разбавления дизельного топлива керосиновой фракцией"
+  },
+  {
+    "category": "T3: Баланс сырья и смешение",
+    "key": "BLEND.HEAVY_GASOIL_SHARE_MAX",
+    "label": "Максимальная доля тяжелого газойля",
+    "value": 0.15,
+    "unit": "доля",
+    "provenance": "ASSUMPTION",
+    "source_ref": "agents/DOMAIN_KNOWLEDGE.md §3.2",
+    "description": "Предел вовлечения тяжелого газойля по сере и фракционке"
+  },
+  {
+    "category": "Политика МАС и пороги LIMS",
+    "key": "QUALITY_Z",
+    "label": "Квантиль запаса качества (±2σ)",
+    "value": 2.0,
+    "unit": "σ (alpha=0.0228)",
+    "provenance": "POLICY",
+    "source_ref": "agents/ASSUMPTIONS.md §4.1",
+    "description": "Статистический запас надежности по качеству ГОСТ Евро-5"
+  },
+  {
+    "category": "Политика МАС и пороги LIMS",
+    "key": "EQUIPMENT_Z",
+    "label": "Квантиль запаса по оборудованию (±3σ)",
+    "value": 3.0,
+    "unit": "σ (alpha=0.00135)",
+    "provenance": "POLICY",
+    "source_ref": "agents/ASSUMPTIONS.md §4.1",
+    "description": "Запас до уставок ПАЗ/ESD по давлению, температурам и перепаду"
+  },
+  {
+    "category": "Политика МАС и пороги LIMS",
+    "key": "LIMS_MAX_AGE_HOURS",
+    "label": "Порог устаревания LIMS без ПАК",
+    "value": 24.0,
+    "unit": "ч",
+    "provenance": "POLICY",
+    "source_ref": "agents/DOMAIN_KNOWLEDGE.md §5.1",
+    "description": "Автоматический переход в safe-hold при возрасте пробы > 24 ч"
+  },
+  {
+    "category": "Политика МАС и пороги LIMS",
+    "key": "LIMS_WARN_AGE_HOURS",
+    "label": "Порог предупреждения о возрасте LIMS",
+    "value": 8.0,
+    "unit": "ч",
+    "provenance": "POLICY",
+    "source_ref": "agents/DOMAIN_KNOWLEDGE.md §5.1",
+    "description": "Переход в осторожный режим CAUTIOUS с урезанием шага в 2 раза"
+  },
+  {
+    "category": "Политика МАС и пороги LIMS",
+    "key": "DEADBAND_RUB_H",
+    "label": "Зона нечувствительности по марже",
+    "value": 1000.0,
+    "unit": "руб/ч",
+    "provenance": "POLICY",
+    "source_ref": "agents/ASSUMPTIONS.md §5.2",
+    "description": "Запрет дергания приводов при микроскопическом экономическом эффекте"
+  },
+  {
+    "category": "Политика МАС и пороги LIMS",
+    "key": "SOFT_BUDGET_S",
+    "label": "Мягкий бюджет времени такта (p95)",
+    "value": 2.0,
+    "unit": "с",
+    "provenance": "POLICY",
+    "source_ref": "agents/ASSUMPTIONS.md §5.3",
+    "description": "Остановка раундов переговоров при исчерпании бюджета 2 с"
+  },
+  {
+    "category": "Политика МАС и пороги LIMS",
+    "key": "HARD_BUDGET_S",
+    "label": "Жесткий таймаут watchdog цикла МАС",
+    "value": 10.0,
+    "unit": "с",
+    "provenance": "POLICY",
+    "source_ref": "agents/ASSUMPTIONS.md §5.3",
+    "description": "Принудительный возврат REFUSAL_TIMEOUT при превышении 10 с"
+  }
+]

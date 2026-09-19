@@ -144,6 +144,11 @@ class PlantSimulator:
         return self.step_count * (self.dt_min / 60.0)
 
     @property
+    def last_model_outputs(self) -> Dict[str, float]:
+        """Полный срез выходов двойника на последнем такте (для консоли/аналитики)."""
+        return dict(self._last_raw_output)
+
+    @property
     def measured_mvs(self) -> Dict[str, float]:
         """Фактические измеренные положения регулирующих органов (MV)."""
         return {

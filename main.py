@@ -29,6 +29,11 @@ app = FastAPI(
     version="3.0.0",
 )
 
+from fastapi.staticfiles import StaticFiles
+from src.console.api import router as console_router
+app.include_router(console_router, prefix="/api/console")
+app.mount("/console", StaticFiles(directory="static/console", html=True), name="console")
+
 EXECUTOR = ThreadPoolExecutor(max_workers=4)
 POLICY_STORE = PolicyStore()
 

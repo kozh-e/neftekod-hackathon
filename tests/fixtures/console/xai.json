@@ -1,0 +1,40 @@
+{
+  "cycle_id": "cycle_demo_1",
+  "events": [
+    {
+      "round": 1,
+      "kind": "PROPOSED",
+      "actor": "optimization",
+      "candidate": "cand_003",
+      "detail": "Предложен ход +2.1 т/ч по сырью ГО"
+    },
+    {
+      "round": 1,
+      "kind": "CERTIFIED",
+      "actor": "reliability",
+      "candidate": "cand_003",
+      "detail": "T0–T2 пройдены с запасом"
+    },
+    {
+      "round": 1,
+      "kind": "REPAIR_PROPOSED",
+      "actor": "kernel",
+      "candidate": "cand_003",
+      "detail": "Шаг срезан до 3.0 т/ч по коридору"
+    },
+    {
+      "round": 2,
+      "kind": "BEST_UPDATED",
+      "actor": "optimization",
+      "candidate": "cand_003_r",
+      "detail": "Обновлён лучший кандидат после среза"
+    },
+    {
+      "round": 2,
+      "kind": "CONVERGED",
+      "actor": "arbitration",
+      "candidate": "cand_003_r",
+      "detail": "Переговоры сошлись, выбран cand_003_r"
+    }
+  ]
+}

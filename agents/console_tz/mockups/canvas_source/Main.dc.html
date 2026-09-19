@@ -1,0 +1,627 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<title>Пульт Р-202 — Совет</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&amp;family=IBM+Plex+Sans:wght@400;500;600;700&amp;display=swap">
+<style>
+body{margin:0;font-family:"IBM Plex Sans",system-ui,sans-serif;color:#16181A;background:#D9DAD7}
+a{color:#1D5AA6}a:hover{color:#153F75}
+.mono{font-family:"IBM Plex Mono",ui-monospace,monospace}
+button{font-family:inherit;cursor:pointer}
+input{font-family:inherit}
+</style>
+</helmet>
+<div style="width: 1920px; height: 1080px; box-sizing: border-box; border: 6px solid {{modeColor}}; background: #D9DAD7; display: flex; flex-direction: column; overflow: hidden;">
+
+<!-- ============ STATUS BAR ============ -->
+<div style="height: 76px; flex-shrink: 0; box-sizing: border-box; padding: 0 20px; background: #EEEEEB; border-bottom: 1px solid #B9BBB7; display: flex; align-items: center; gap: 20px;">
+  <div style="display: flex; align-items: center; gap: 10px; height: 52px; padding: 0 22px; border-radius: 6px; background: {{modeFill}}; color: #FFFFFF;">
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#FFFFFF" style="stroke-width: 2.2;"><circle cx="12" cy="12" r="8"></circle><circle cx="12" cy="12" r="3" fill="#FFFFFF"></circle></svg>
+    <span style="font-size: 26px; font-weight: 700; letter-spacing: 0.06em;">{{modeLabel}}</span>
+  </div>
+  <sc-if value="{{isAdv}}" hint-placeholder-val="{{ true }}">
+    <button type="button" style="height: 52px; padding: 0 20px; font-size: 18px; font-weight: 600; background: #FFFFFF; color: #17784F; border: 2px solid #17784F; border-radius: 6px;">Включить автомат</button>
+  </sc-if>
+  <sc-if value="{{isAuto}}" hint-placeholder-val="{{ false }}">
+    <button type="button" style="height: 52px; padding: 0 20px; font-size: 18px; font-weight: 600; background: #FFFFFF; color: #16181A; border: 2px solid #16181A; border-radius: 6px;">Взять управление</button>
+    <span style="font-size: 16px; color: #3F4448;">в автомате <span class="mono" style="font-weight: 600;">35 мин</span></span>
+  </sc-if>
+  <sc-if value="{{isRef}}" hint-placeholder-val="{{ false }}">
+    <button type="button" disabled style="height: 52px; padding: 0 20px; font-size: 18px; font-weight: 600; background: #E2E2DF; color: #5A5F64; border: 2px dashed #8E9297; border-radius: 6px; cursor: not-allowed;">Автомат недоступен</button>
+  </sc-if>
+  <div style="width: 1px; height: 44px; background: #B9BBB7;"></div>
+  <div style="display: flex; flex-direction: column; gap: 2px;">
+    <span style="font-size: 20px; font-weight: 600;">Гидроочистка 24-2000 · реактор Р-202</span>
+    <span style="font-size: 14px; color: #4A4E53;">ДТ Евро-5 · сера ≤ 10 ppm · вспышка ≥ 55 °C · {{scenarioTag}}</span>
+  </div>
+  <div style="flex-grow: 1;"></div>
+  <div style="display: flex; flex-direction: column; align-items: flex-end; gap: 0;">
+    <span style="font-size: 13px; color: #4A4E53; letter-spacing: 0.04em;">МАРЖА</span>
+    <span class="mono" style="font-size: 26px; font-weight: 600;">{{margin}} <span style="font-size: 16px; font-weight: 500; color: #4A4E53;">млн ₽/ч</span></span>
+  </div>
+  <span class="mono" style="font-size: 16px; font-weight: 600; color: {{marginDeltaColor}};">{{marginDelta}}</span>
+  <div style="width: 1px; height: 44px; background: #B9BBB7;"></div>
+  <div style="display: flex; align-items: center; gap: 8px; height: 44px; padding: 0 14px; border-radius: 6px; background: {{alarmBg}}; border: 1px solid {{alarmBorder}};">
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="{{alarmInk}}" style="stroke-width: 2;"><path d="M6 16V11a6 6 0 0 1 12 0v5l1.5 2h-15z"></path><path d="M10 20.5a2 2 0 0 0 4 0"></path></svg>
+    <span style="font-size: 16px; font-weight: 600; color: {{alarmInk}};">{{alarmText}}</span>
+  </div>
+  <span class="mono" style="font-size: 28px; font-weight: 500;">{{clock}}</span>
+  <button type="button" style="height: 44px; padding: 0 16px; font-size: 16px; font-weight: 600; background: #FFFFFF; color: #16181A; border: 1px solid #8E9297; border-radius: 6px;">Сдать смену</button>
+</div>
+
+<!-- ============ REFUSAL BANNER ============ -->
+<sc-if value="{{isRef}}" hint-placeholder-val="{{ false }}">
+  <div style="height: 60px; flex-shrink: 0; box-sizing: border-box; margin: 14px 16px 0 16px; padding: 0 20px; background: #FFF1C2; border: 2px solid #C98A1B; border-radius: 6px; display: flex; align-items: center; gap: 16px;">
+    <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#6B4506" style="stroke-width: 2.2;"><path d="M12 3l10 18H2z"></path><path d="M12 10v5"></path><path d="M12 18v.5"></path></svg>
+    <span style="font-size: 20px; font-weight: 700; color: #4A3004;">АВТОМАТ ОТКЛЮЧЁН в 12:38</span>
+    <span style="font-size: 18px; color: #4A3004;">Нет достоверных данных по сере: ПАК HT_Q21 без сигнала с 11:50, последний анализ LIMS 26 ч назад. Уставки заморожены.</span>
+    <div style="flex-grow: 1;"></div>
+    <button type="button" style="height: 40px; padding: 0 18px; font-size: 16px; font-weight: 600; background: #6B4506; color: #FFFFFF; border: none; border-radius: 6px;">Квитировать</button>
+  </div>
+</sc-if>
+
+<!-- ============ BODY ============ -->
+<div style="flex-grow: 1; min-height: 0; box-sizing: border-box; padding: 14px 16px 16px 16px; display: flex; gap: 16px;">
+
+  <!-- ===== LEFT: CHARTS ===== -->
+  <div style="width: 1248px; flex-shrink: 0; display: flex; flex-direction: column; gap: 12px; min-height: 0;">
+
+    <!-- legend row -->
+    <div style="display: flex; align-items: center; gap: 22px; height: 24px; font-size: 14px; color: #3F4448;">
+      <span style="font-weight: 600; color: #16181A;">История 8 ч · прогноз 4 ч · шаг 10 мин</span>
+      <div style="display: flex; align-items: center; gap: 6px;"><svg width="28" height="8"><line x1="0" y1="4" x2="28" y2="4" stroke="#2B2F33" style="stroke-width: 2.5;"></line></svg>факт</div>
+      <div style="display: flex; align-items: center; gap: 6px;"><svg width="28" height="8"><line x1="0" y1="4" x2="28" y2="4" stroke="#7D8288" style="stroke-width: 2; stroke-dasharray: 5 4;"></line></svg>без изменений</div>
+      <div style="display: flex; align-items: center; gap: 6px;"><svg width="28" height="8"><line x1="0" y1="4" x2="28" y2="4" stroke="#1D5AA6" style="stroke-width: 3;"></line></svg>{{recLegend}}</div>
+      <sc-if value="{{isAdv}}" hint-placeholder-val="{{ true }}">
+        <div style="display: flex; align-items: center; gap: 6px;"><svg width="28" height="8"><line x1="0" y1="4" x2="28" y2="4" stroke="#B45309" style="stroke-width: 3;"></line></svg>ваша правка</div>
+      </sc-if>
+      <div style="display: flex; align-items: center; gap: 6px;"><svg width="28" height="12"><rect x="0" y="0" width="28" height="12" fill="#1D5AA6" style="fill-opacity: 0.16;"></rect></svg>P10–P90</div>
+      <div style="display: flex; align-items: center; gap: 6px;"><svg width="28" height="8"><line x1="0" y1="4" x2="28" y2="4" stroke="#B3261E" style="stroke-width: 2;"></line></svg>лимит</div>
+    </div>
+
+    <!-- CV charts -->
+    <sc-for list="{{charts}}" as="c" hint-placeholder-count="2">
+      <div style="background: #EEEEEB; border: 1px solid #B9BBB7; border-radius: 6px; box-sizing: border-box; padding: 10px 16px 6px 16px; display: flex; flex-direction: column; gap: 4px;">
+        <div style="display: flex; align-items: baseline; gap: 14px;">
+          <span style="font-size: 16px; font-weight: 700; letter-spacing: 0.05em;">{{c.title}}</span>
+          <span class="mono" style="font-size: 14px; color: #4A4E53;">{{c.tag}}</span>
+          <span class="mono" style="font-size: 30px; font-weight: 600; color: {{c.valueColor}};">{{c.value}}</span>
+          <span style="font-size: 16px; color: #4A4E53;">{{c.unit}}</span>
+          <span style="font-size: 15px; font-weight: 600; color: {{c.chipInk}}; background: {{c.chipBg}}; padding: 3px 10px; border-radius: 4px;">{{c.chip}}</span>
+          <div style="flex-grow: 1;"></div>
+          <span style="font-size: 14px; color: #4A4E53;">{{c.note}}</span>
+        </div>
+        <svg width="1216" height="{{c.h}}" viewBox="0 0 1216 {{c.h}}" style="display: block;">
+          <defs>
+            <pattern id="hatch" width="10" height="10" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
+              <line x1="0" y1="0" x2="0" y2="10" stroke="#8A6A2A" style="stroke-width: 3; stroke-opacity: 0.35;"></line>
+            </pattern>
+          </defs>
+          <rect x="780" y="{{c.top}}" width="360" height="{{c.ph}}" fill="#FFFFFF" style="fill-opacity: 0.55;"></rect>
+          <sc-if value="{{c.showRisk}}" hint-placeholder-val="{{ false }}">
+            <rect x="{{c.riskX}}" y="{{c.top}}" width="{{c.riskW}}" height="{{c.ph}}" fill="#B3261E" style="fill-opacity: 0.12;"></rect>
+          </sc-if>
+          <sc-if value="{{c.showGap}}" hint-placeholder-val="{{ false }}">
+            <rect x="{{c.gapX}}" y="{{c.top}}" width="{{c.gapW}}" height="{{c.ph}}" fill="url(#hatch)"></rect>
+            <text x="{{c.gapLabelX}}" y="{{c.gapLabelY}}" fill="#4A3004" style="font-size: 13px; font-weight: 600; text-anchor: middle;">нет сигнала ПАК</text>
+          </sc-if>
+          <sc-for list="{{c.gridY}}" as="g" hint-placeholder-count="4">
+            <line x1="60" y1="{{g.y}}" x2="1140" y2="{{g.y}}" stroke="#C9CAC6" style="stroke-width: 1;"></line>
+            <text x="52" y="{{g.ty}}" fill="#4A4E53" style="font-size: 13px; text-anchor: end;" class="mono">{{g.label}}</text>
+          </sc-for>
+          <sc-if value="{{c.hasLimit}}" hint-placeholder-val="{{ true }}">
+            <line x1="60" y1="{{c.limitY}}" x2="1140" y2="{{c.limitY}}" stroke="#B3261E" style="stroke-width: 2;"></line>
+            <text x="66" y="{{c.limitTY}}" fill="#B3261E" style="font-size: 13px; font-weight: 600;">{{c.limitLabel}}</text>
+          </sc-if>
+          <sc-if value="{{c.showBand}}" hint-placeholder-val="{{ true }}">
+            <polygon points="{{c.band}}" fill="{{c.bandColor}}" style="fill-opacity: 0.18;"></polygon>
+          </sc-if>
+          <sc-if value="{{c.showNoChange}}" hint-placeholder-val="{{ true }}">
+            <path d="{{c.noChange}}" fill="none" stroke="#7D8288" style="stroke-width: 2; stroke-dasharray: 6 5;"></path>
+          </sc-if>
+          <sc-if value="{{c.showRecThin}}" hint-placeholder-val="{{ false }}">
+            <path d="{{c.recThin}}" fill="none" stroke="#1D5AA6" style="stroke-width: 1.5;"></path>
+          </sc-if>
+          <sc-if value="{{c.showActive}}" hint-placeholder-val="{{ true }}">
+            <path d="{{c.active}}" fill="none" stroke="{{c.activeColor}}" style="stroke-width: 3;"></path>
+          </sc-if>
+          <path d="{{c.hist}}" fill="none" stroke="#2B2F33" style="stroke-width: 2.5;"></path>
+          <line x1="780" y1="{{c.nowTop}}" x2="780" y2="{{c.nowBot}}" stroke="#16181A" style="stroke-width: 1.5; stroke-dasharray: 3 3;"></line>
+          <sc-if value="{{c.showNowDot}}" hint-placeholder-val="{{ true }}">
+            <circle cx="{{c.dotX}}" cy="{{c.dotY}}" r="5" fill="#16181A"></circle>
+          </sc-if>
+          <sc-for list="{{c.endLabels}}" as="e" hint-placeholder-count="2">
+            <text x="1146" y="{{e.y}}" fill="{{e.color}}" style="font-size: 15px; font-weight: 600;" class="mono">{{e.text}}</text>
+          </sc-for>
+          <sc-if value="{{c.showMsg}}" hint-placeholder-val="{{ false }}">
+            <text x="960" y="{{c.msgY}}" fill="#4A3004" style="font-size: 16px; font-weight: 600; text-anchor: middle;">{{c.msg}}</text>
+            <text x="960" y="{{c.msgY2}}" fill="#4A4E53" style="font-size: 14px; text-anchor: middle;">{{c.msg2}}</text>
+          </sc-if>
+          <sc-for list="{{ticks}}" as="t" hint-placeholder-count="7">
+            <text x="{{t.x}}" y="{{c.tickY}}" fill="{{t.color}}" style="font-size: 13px; text-anchor: middle; font-weight: {{t.weight}};" class="mono">{{t.label}}</text>
+          </sc-for>
+        </svg>
+      </div>
+    </sc-for>
+
+    <!-- ΔP8 compact -->
+    <div style="background: #EEEEEB; border: 1px solid #B9BBB7; border-radius: 6px; box-sizing: border-box; padding: 8px 16px; display: flex; align-items: center; gap: 18px;">
+      <div style="width: 250px; display: flex; flex-direction: column; gap: 0;">
+        <span style="font-size: 15px; font-weight: 700; letter-spacing: 0.05em;">ПЕРЕПАД Р-202 <span class="mono" style="font-size: 13px; font-weight: 400; color: #4A4E53;">HT_P8</span></span>
+        <span class="mono" style="font-size: 26px; font-weight: 600;">{{dp.value}} <span style="font-size: 15px; font-weight: 400; color: #4A4E53;">кПа</span></span>
+      </div>
+      <svg width="700" height="56" viewBox="0 0 700 56" style="display: block;">
+        <rect x="455" y="4" width="245" height="48" fill="#FFFFFF" style="fill-opacity: 0.55;"></rect>
+        <line x1="0" y1="{{dp.limitY}}" x2="700" y2="{{dp.limitY}}" stroke="#B3261E" style="stroke-width: 2;"></line>
+        <path d="{{dp.plan}}" fill="none" stroke="#1D5AA6" style="stroke-width: 2.5;"></path>
+        <path d="{{dp.hist}}" fill="none" stroke="#2B2F33" style="stroke-width: 2.5;"></path>
+        <line x1="455" y1="2" x2="455" y2="54" stroke="#16181A" style="stroke-width: 1.5; stroke-dasharray: 3 3;"></line>
+      </svg>
+      <div style="display: flex; flex-direction: column; gap: 2px; font-size: 15px;">
+        <span style="color: #B3261E; font-weight: 600;">T1: 454.5 кПа</span>
+        <span style="color: #3F4448;">запас до T1: <span class="mono" style="font-weight: 600; color: #16181A;">{{dp.margin}} кПа</span></span>
+      </div>
+    </div>
+
+    <!-- MV strip -->
+    <div style="display: flex; flex-direction: column; gap: 6px;">
+      <div style="display: flex; align-items: baseline; gap: 12px;">
+        <span style="font-size: 15px; font-weight: 700; letter-spacing: 0.05em;">УСТАВКИ (MV)</span>
+        <span style="font-size: 14px; color: #4A4E53;">ступенька — уставка SP · тонкая — факт PV · светлая полоса — коридор шага из паспорта</span>
+        <div style="flex-grow: 1;"></div>
+        <sc-if value="{{isRef}}" hint-placeholder-val="{{ false }}">
+          <span style="display: flex; align-items: center; gap: 6px; font-size: 14px; font-weight: 600; color: #4A3004;">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#4A3004" style="stroke-width: 2.2;"><rect x="5" y="11" width="14" height="10" rx="1.5"></rect><path d="M8 11V8a4 4 0 0 1 8 0v3"></path></svg>
+            все уставки заморожены (safe-hold)
+          </span>
+        </sc-if>
+      </div>
+      <div style="display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 12px;">
+        <sc-for list="{{mvs}}" as="m" hint-placeholder-count="5">
+          <div style="background: #EEEEEB; border: {{m.border}}; border-radius: 6px; box-sizing: border-box; padding: 8px 10px 6px 10px; display: flex; flex-direction: column; gap: 2px;">
+            <div style="display: flex; align-items: baseline; gap: 6px;">
+              <span style="font-size: 14px; font-weight: 700;">{{m.name}}</span>
+              <span class="mono" style="font-size: 12px; color: #4A4E53;">{{m.tag}}</span>
+            </div>
+            <div style="display: flex; align-items: baseline; gap: 6px;">
+              <span class="mono" style="font-size: 22px; font-weight: 600;">{{m.value}}</span>
+              <span style="font-size: 13px; color: #4A4E53;">{{m.unit}}</span>
+              <div style="flex-grow: 1;"></div>
+              <span class="mono" style="font-size: 15px; font-weight: 600; color: {{m.nextColor}};">{{m.next}}</span>
+            </div>
+            <svg width="224" height="84" viewBox="0 0 224 84" style="display: block;">
+              <rect x="147" y="2" width="75" height="80" fill="#FFFFFF" style="fill-opacity: 0.55;"></rect>
+              <sc-if value="{{m.showCorr}}" hint-placeholder-val="{{ true }}">
+                <rect x="147" y="{{m.corrY}}" width="9" height="{{m.corrH}}" fill="#1D5AA6" style="fill-opacity: 0.16;"></rect>
+              </sc-if>
+              <sc-if value="{{m.hasLimit}}" hint-placeholder-val="{{ false }}">
+                <line x1="4" y1="{{m.limitY}}" x2="220" y2="{{m.limitY}}" stroke="#B3261E" style="stroke-width: 1.5; stroke-dasharray: 4 3;"></line>
+              </sc-if>
+              <sc-if value="{{m.hasWarn}}" hint-placeholder-val="{{ false }}">
+                <line x1="4" y1="{{m.warnY}}" x2="220" y2="{{m.warnY}}" stroke="#A86A0A" style="stroke-width: 1.5; stroke-dasharray: 2 3;"></line>
+              </sc-if>
+              <path d="{{m.pv}}" fill="none" stroke="#7D8288" style="stroke-width: 1.2;"></path>
+              <sc-if value="{{m.showRecThin}}" hint-placeholder-val="{{ false }}">
+                <path d="{{m.recThin}}" fill="none" stroke="#1D5AA6" style="stroke-width: 1.3;"></path>
+              </sc-if>
+              <path d="{{m.future}}" fill="none" stroke="{{m.futureColor}}" style="stroke-width: 2.5; stroke-dasharray: {{m.futureDash}};"></path>
+              <path d="{{m.sp}}" fill="none" stroke="#16181A" style="stroke-width: 2;"></path>
+              <line x1="147" y1="2" x2="147" y2="82" stroke="#16181A" style="stroke-width: 1; stroke-dasharray: 3 3;"></line>
+            </svg>
+            <span style="font-size: 12px; color: #4A4E53;">{{m.corr}}</span>
+          </div>
+        </sc-for>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== RIGHT: DECISION COLUMN ===== -->
+  <div style="flex-grow: 1; min-width: 0; display: flex; flex-direction: column; gap: 12px; min-height: 0;">
+
+    <!-- ---------- ADVISORY ---------- -->
+    <sc-if value="{{isAdv}}" hint-placeholder-val="{{ true }}">
+      <div style="background: #FFFFFF; border: 2px solid #1D5AA6; border-radius: 8px; box-sizing: border-box; padding: 14px 18px; display: flex; flex-direction: column; gap: 9px;">
+        <div style="display: flex; align-items: baseline; gap: 10px;">
+          <span style="font-size: 18px; font-weight: 700; letter-spacing: 0.06em; color: #1D5AA6;">СИСТЕМА ПРЕДЛАГАЕТ</span>
+          <div style="flex-grow: 1;"></div>
+          <span class="mono" style="font-size: 14px; color: #4A4E53;">12:40 · актуально до 13:10</span>
+        </div>
+        <p style="margin: 0; font-size: 17px; line-height: 1.35;">Сера растёт из-за утяжеления сырья (+0.5 ppm/ч). Поднимаем температуру входа Р-202 и кратность ВСГ, чтобы удержать серу ≤ 10 ppm.</p>
+
+        <div style="display: flex; flex-direction: column; gap: 8px;">
+          <div style="display: grid; grid-template-columns: 150px 70px 22px 130px minmax(0, 1fr); align-items: center; gap: 10px; padding: 8px 10px; background: #FFF4EA; border: 1px solid #E3B58A; border-radius: 6px;">
+            <label for="in-t6" style="font-size: 15px; font-weight: 600; line-height: 1.2;">Вход Р-202<br><span class="mono" style="font-size: 12px; font-weight: 400; color: #4A4E53;">HT_T6, °C</span></label>
+            <span class="mono" style="font-size: 20px; color: #3F4448;">363.3</span>
+            <svg width="22" height="16" viewBox="0 0 22 16" fill="none" stroke="#3F4448" style="stroke-width: 2;"><path d="M2 8h16"></path><path d="M13 3l5 5-5 5"></path></svg>
+            <input id="in-t6" type="text" defaultValue="364.5" class="mono" style="width: 130px; height: 44px; box-sizing: border-box; padding: 0 10px; font-size: 22px; font-weight: 600; color: #8A3F06; border: 2px solid #B45309; border-radius: 6px; background: #FFFFFF;">
+            <span style="font-size: 13px; line-height: 1.3; color: #8A3F06;">изменено вами<br>рекомендация <span class="mono" style="font-weight: 600;">365.0</span></span>
+          </div>
+          <div style="display: grid; grid-template-columns: 150px 70px 22px 130px minmax(0, 1fr); align-items: center; gap: 10px; padding: 8px 10px; border: 1px solid #D4D5D1; border-radius: 6px;">
+            <label for="in-gor" style="font-size: 15px; font-weight: 600; line-height: 1.2;">Кратность ВСГ<br><span class="mono" style="font-size: 12px; font-weight: 400; color: #4A4E53;">HT_GOR, нм³/м³</span></label>
+            <span class="mono" style="font-size: 20px; color: #3F4448;">360</span>
+            <svg width="22" height="16" viewBox="0 0 22 16" fill="none" stroke="#3F4448" style="stroke-width: 2;"><path d="M2 8h16"></path><path d="M13 3l5 5-5 5"></path></svg>
+            <input id="in-gor" type="text" defaultValue="380" class="mono" style="width: 130px; height: 44px; box-sizing: border-box; padding: 0 10px; font-size: 22px; font-weight: 600; color: #1D5AA6; border: 2px solid #1D5AA6; border-radius: 6px; background: #FFFFFF;">
+            <span style="font-size: 13px; color: #3F4448;">= рекомендация</span>
+          </div>
+        </div>
+
+        <div style="display: flex; align-items: center; gap: 8px; font-size: 14px; color: #17784F;">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#17784F" style="stroke-width: 2.2;"><path d="M12 3l8 3v6c0 4.5-3.4 8-8 9-4.6-1-8-4.5-8-9V6z"></path><path d="M8.5 12l2.5 2.5 4.5-5"></path></svg>
+          <span>Ваши значения проверены ядром T0–T3: нарушений нет · шаг в коридоре (≤ 3 °C/такт)</span>
+        </div>
+
+        <div style="display: flex; align-items: center; gap: 10px; padding: 10px 12px; background: #FBE9E7; border: 1px solid #B3261E; border-radius: 6px;">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#B3261E" style="stroke-width: 2.2;"><path d="M12 3l10 18H2z"></path><path d="M12 10v5"></path><path d="M12 18v.5"></path></svg>
+          <span style="font-size: 16px; color: #7A1712;"><b>Риск превышения 10 ppm: 12%</b> через {{riskIn}} · при рекомендации: &lt; 1%</span>
+        </div>
+
+        <div style="display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px;">
+          <div style="padding: 8px 10px; background: #F4F4F2; border-radius: 6px; display: flex; flex-direction: column; gap: 2px;">
+            <span style="font-size: 13px; color: #4A4E53;">Сера через 4 ч</span>
+            <span class="mono" style="font-size: 22px; font-weight: 600; color: #8A3F06;">{{sulEdit}} ppm</span>
+            <span style="font-size: 12px; color: #3F4448;">рек. <span class="mono">{{sulRec}}</span> · без изм. <span class="mono">{{sulNo}}</span></span>
+          </div>
+          <div style="padding: 8px 10px; background: #F4F4F2; border-radius: 6px; display: flex; flex-direction: column; gap: 2px;">
+            <span style="font-size: 13px; color: #4A4E53;">Запас по вспышке</span>
+            <span class="mono" style="font-size: 22px; font-weight: 600;">+{{flashMargin}} °C</span>
+            <span style="font-size: 12px; color: #3F4448;">над 55 °C с учётом 2σ</span>
+          </div>
+          <div style="padding: 8px 10px; background: #F4F4F2; border-radius: 6px; display: flex; flex-direction: column; gap: 2px;">
+            <span style="font-size: 13px; color: #4A4E53;">Маржа</span>
+            <span class="mono" style="font-size: 22px; font-weight: 600;">−6 тыс ₽/ч</span>
+            <span style="font-size: 12px; color: #3F4448;">рек. <span class="mono">−9</span> · цена удержания ГОСТ</span>
+          </div>
+        </div>
+
+        <div style="display: flex; flex-direction: column; gap: 6px;">
+          <span style="font-size: 13px; color: #4A4E53;">Другие допустимые режимы</span>
+          <div style="display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0; border: 1px solid #8E9297; border-radius: 6px; overflow: hidden;">
+            <button type="button" style="height: 44px; font-size: 15px; font-weight: 500; background: #FFFFFF; color: #16181A; border: none; border-right: 1px solid #8E9297;">Макс. маржа</button>
+            <button type="button" aria-pressed="true" style="height: 44px; font-size: 15px; font-weight: 700; background: #1D5AA6; color: #FFFFFF; border: none;">Сбалансировано</button>
+            <button type="button" style="height: 44px; font-size: 15px; font-weight: 500; background: #FFFFFF; color: #16181A; border: none; border-left: 1px solid #8E9297;">Макс. запас</button>
+          </div>
+        </div>
+
+        <button type="button" style="height: 52px; font-size: 20px; font-weight: 700; background: #16181A; color: #FFFFFF; border: none; border-radius: 6px;">Отправить мои значения</button>
+        <div style="display: flex; gap: 10px;">
+          <button type="button" style="flex-grow: 1; height: 44px; padding: 0 16px; font-size: 16px; font-weight: 600; background: #FFFFFF; color: #1D5AA6; border: 2px solid #1D5AA6; border-radius: 6px;">Вернуть рекомендацию</button>
+          <button type="button" style="flex-grow: 1; height: 44px; padding: 0 16px; font-size: 16px; font-weight: 600; background: #FFFFFF; color: #3F4448; border: 1px solid #8E9297; border-radius: 6px;">Отклонить</button>
+        </div>
+
+        <button type="button" style="display: flex; align-items: center; gap: 8px; height: 44px; padding: 0 4px; background: none; border: none; font-size: 15px; font-weight: 600; color: #1D5AA6; text-align: left;">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#1D5AA6" style="stroke-width: 2.5;"><path d="M9 5l7 7-7 7"></path></svg>
+          Почему так решили: 4 агента, 1 возражение (Надёжность)
+        </button>
+      </div>
+    </sc-if>
+
+    <!-- ---------- AUTO ---------- -->
+    <sc-if value="{{isAuto}}" hint-placeholder-val="{{ false }}">
+      <div style="background: #FFFFFF; border: 2px solid #17784F; border-radius: 8px; box-sizing: border-box; padding: 16px 18px; display: flex; flex-direction: column; gap: 12px;">
+        <div style="display: flex; align-items: baseline; gap: 10px;">
+          <span style="font-size: 18px; font-weight: 700; letter-spacing: 0.06em; color: #17784F;">СЛЕДУЮЩИЙ ШАГ АВТОМАТА</span>
+          <div style="flex-grow: 1;"></div>
+          <span style="font-size: 15px; color: #3F4448;">через</span>
+          <span class="mono" style="font-size: 34px; font-weight: 600; color: #17784F;">02:30</span>
+        </div>
+        <div style="height: 8px; background: #E1EFE8; border-radius: 4px; overflow: hidden;"><div style="width: 75%; height: 8px; background: #17784F;"></div></div>
+        <div style="display: flex; align-items: center; gap: 14px; padding: 10px 12px; background: #F4F4F2; border-radius: 6px;">
+          <span style="font-size: 16px; font-weight: 600;">Сырьё ГО <span class="mono" style="font-size: 12px; font-weight: 400; color: #4A4E53;">HT_F9</span></span>
+          <span class="mono" style="font-size: 22px; color: #3F4448;">231.0</span>
+          <svg width="22" height="16" viewBox="0 0 22 16" fill="none" stroke="#3F4448" style="stroke-width: 2;"><path d="M2 8h16"></path><path d="M13 3l5 5-5 5"></path></svg>
+          <span class="mono" style="font-size: 26px; font-weight: 600; color: #1D5AA6;">236.0</span>
+          <span style="font-size: 15px; color: #3F4448;">т/ч</span>
+          <div style="flex-grow: 1;"></div>
+          <span class="mono" style="font-size: 14px; color: #3F4448;">+5.0 из ≤ 10/такт</span>
+        </div>
+        <p style="margin: 0; font-size: 17px; line-height: 1.4;">Идём к режиму «Сбалансировано»: +38 тыс ₽/ч при прогнозе серы ≤ 9.1 ppm и запасе по вспышке +4.9 °C.</p>
+        <div style="display: flex; gap: 10px;">
+          <button type="button" style="flex-grow: 1; height: 52px; font-size: 17px; font-weight: 600; background: #FFFFFF; color: #16181A; border: 2px solid #16181A; border-radius: 6px;">Пропустить этот шаг</button>
+          <button type="button" style="flex-grow: 1; height: 52px; font-size: 17px; font-weight: 700; background: #16181A; color: #FFFFFF; border: none; border-radius: 6px;">Взять управление</button>
+        </div>
+      </div>
+
+      <div style="background: #EEEEEB; border: 1px solid #B9BBB7; border-radius: 6px; box-sizing: border-box; padding: 12px 16px; display: flex; flex-direction: column; gap: 8px;">
+        <div style="display: flex; align-items: baseline; gap: 8px;">
+          <span style="font-size: 15px; font-weight: 700; letter-spacing: 0.05em;">КОРИДОР АВТОМАТА</span>
+          <span style="font-size: 13px; color: #4A4E53;">из паспорта · только просмотр</span>
+        </div>
+        <div style="display: grid; grid-template-columns: 170px 150px minmax(0, 1fr); gap: 4px 12px; font-size: 14px;">
+          <span style="color: #4A4E53;">Уставка</span><span style="color: #4A4E53;">Макс. шаг</span><span style="color: #4A4E53;">Диапазон T0</span>
+          <span style="font-weight: 600;">Сырьё HT_F9</span><span class="mono">10 т/ч/такт</span><span class="mono">158.7 – 252.8 т/ч</span>
+          <span style="font-weight: 600;">Вход Р-202 HT_T6</span><span class="mono">3 °C/такт</span><span class="mono">346.5 – 380.5 °C</span>
+          <span style="font-weight: 600;">Перевал П-3 T55</span><span class="mono">3 °C/такт</span><span class="mono">375.0 – 395.0 °C</span>
+          <span style="font-weight: 600;">Давление HT_P13</span><span style="color: #4A4E53;">[из паспорта]</span><span class="mono">3.755 – 4.009 МПа</span>
+          <span style="font-weight: 600;">ВСГ HT_GOR</span><span style="color: #4A4E53;">[из паспорта]</span><span class="mono">313 – 490 нм³/м³</span>
+        </div>
+      </div>
+    </sc-if>
+
+    <!-- ---------- REFUSAL ---------- -->
+    <sc-if value="{{isRef}}" hint-placeholder-val="{{ false }}">
+      <div style="background: #FFF1C2; border: 2px solid #C98A1B; border-radius: 8px; box-sizing: border-box; padding: 16px 18px; display: flex; flex-direction: column; gap: 12px;">
+        <div style="display: flex; align-items: center; gap: 10px;">
+          <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#4A3004" style="stroke-width: 2.2;"><circle cx="12" cy="12" r="9"></circle><path d="M6 6l12 12"></path></svg>
+          <span style="font-size: 20px; font-weight: 700; letter-spacing: 0.05em; color: #4A3004;">НЕТ РЕКОМЕНДАЦИИ</span>
+        </div>
+        <p style="margin: 0; font-size: 18px; line-height: 1.4; color: #2E1E03;">Система не может оценить серу: онлайн-анализатор HT_Q21 не отвечает, а последний лабораторный анализ старше 24 ч. Уставки зафиксированы на значениях 12:38.</p>
+        <div style="display: flex; flex-direction: column; gap: 6px;">
+          <span style="font-size: 14px; font-weight: 700; color: #4A3004;">ЧТО ПРОВЕРИТЬ</span>
+          <div style="display: flex; align-items: center; gap: 10px; min-height: 44px;">
+            <input id="ck1" type="checkbox" style="width: 22px; height: 22px; margin: 0;">
+            <label for="ck1" style="font-size: 16px; color: #2E1E03;">ПАК HT_Q21: питание, пробоотборная линия, связь с ПЛК</label>
+          </div>
+          <div style="display: flex; align-items: center; gap: 10px; min-height: 44px;">
+            <input id="ck2" type="checkbox" style="width: 22px; height: 22px; margin: 0;">
+            <label for="ck2" style="font-size: 16px; color: #2E1E03;">Заказать внеочередной анализ LIMS на серу (гидрогенизат)</label>
+          </div>
+          <div style="display: flex; align-items: center; gap: 10px; min-height: 44px;">
+            <input id="ck3" type="checkbox" style="width: 22px; height: 22px; margin: 0;">
+            <label for="ck3" style="font-size: 16px; color: #2E1E03;">Не повышать загрузку HT_F9 до восстановления данных</label>
+          </div>
+        </div>
+        <div style="padding: 10px 12px; background: #FFFFFF; border: 1px solid #C98A1B; border-radius: 6px; font-size: 15px; color: #2E1E03; line-height: 1.4;">
+          <b>Автомат снова станет доступен</b>, когда ПАК HT_Q21 вернётся в норму или придёт анализ LIMS моложе 24 ч.
+        </div>
+        <button type="button" style="height: 52px; font-size: 17px; font-weight: 700; background: #6B4506; color: #FFFFFF; border: none; border-radius: 6px;">Заказать анализ LIMS</button>
+      </div>
+    </sc-if>
+
+    <!-- ---------- FEED (all) ---------- -->
+    <div style="flex-grow: 1; min-height: 0; background: #EEEEEB; border: 1px solid #B9BBB7; border-radius: 6px; box-sizing: border-box; padding: 12px 16px; display: flex; flex-direction: column; gap: 6px; overflow: hidden;">
+      <div style="display: flex; align-items: baseline; gap: 8px;">
+        <span style="font-size: 15px; font-weight: 700; letter-spacing: 0.05em;">ЛЕНТА</span>
+        <span style="font-size: 13px; color: #4A4E53;">что сделано и почему</span>
+      </div>
+      <sc-for list="{{feed}}" as="f" hint-placeholder-count="5">
+        <div style="display: grid; grid-template-columns: 50px 24px minmax(0, 1fr); gap: 8px; align-items: start; padding: 5px 0; border-top: 1px solid #D4D5D1;">
+          <span class="mono" style="font-size: 14px; color: #3F4448; padding-top: 1px;">{{f.t}}</span>
+          <sc-if value="{{f.isShield}}" hint-placeholder-val="{{ false }}">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#1D5AA6" style="stroke-width: 2.2;"><path d="M12 3l8 3v6c0 4.5-3.4 8-8 9-4.6-1-8-4.5-8-9V6z"></path></svg>
+          </sc-if>
+          <sc-if value="{{f.isOk}}" hint-placeholder-val="{{ true }}">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#17784F" style="stroke-width: 2.5;"><path d="M5 12.5l4.5 4.5L19 7.5"></path></svg>
+          </sc-if>
+          <sc-if value="{{f.isWarn}}" hint-placeholder-val="{{ false }}">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#8A5A0B" style="stroke-width: 2.2;"><path d="M12 3l10 18H2z"></path><path d="M12 10v5"></path></svg>
+          </sc-if>
+          <sc-if value="{{f.isInfo}}" hint-placeholder-val="{{ false }}">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#4A4E53" style="stroke-width: 2.2;"><circle cx="12" cy="12" r="8"></circle><path d="M12 11v5"></path><path d="M12 8v.5"></path></svg>
+          </sc-if>
+          <span style="font-size: 15px; line-height: 1.35;">{{f.text}}</span>
+        </div>
+      </sc-for>
+    </div>
+
+    <!-- ---------- ASK ---------- -->
+    <div style="display: flex; gap: 8px;">
+      <label for="ask" style="position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0);">Вопрос системе</label>
+      <input id="ask" type="text" placeholder="Спросить систему: «почему не поднимаем загрузку?»" style="flex-grow: 1; height: 48px; box-sizing: border-box; padding: 0 14px; font-size: 16px; border: 1px solid #8E9297; border-radius: 6px; background: #FFFFFF; color: #16181A;">
+      <button type="button" style="height: 48px; padding: 0 18px; font-size: 16px; font-weight: 600; background: #FFFFFF; color: #16181A; border: 1px solid #8E9297; border-radius: 6px;">Спросить</button>
+    </div>
+  </div>
+</div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"scenario":{"editor":"enum","options":["advisory","auto","refusal"],"default":"advisory"},"$preview":{"width":1920,"height":1080}}'>
+const DEFAULT_SCENARIO = 'advisory';
+class Component extends DCLogic {
+  renderVals() {
+    const sc = this.props.scenario ?? DEFAULT_SCENARIO;
+    const isAdv = sc === 'advisory', isAuto = sc === 'auto', isRef = sc === 'refusal';
+    const NOW = 48, N = 72;
+    const X = (i) => 60 + i * 15;
+    const f1 = (n) => n.toFixed(1);
+    const noise = (i, a) => a * Math.sin(i * 1.3) + a * 0.6 * Math.sin(i * 0.47 + 1);
+    const range = (a, b) => { const r = []; for (let i = a; i <= b; i++) r.push(i); return r; };
+    const path = (pts, Y, XF) => pts.map((p, k) => (k ? 'L' : 'M') + f1((XF || X)(p[0])) + ' ' + f1(Y(p[1]))).join(' ');
+    const poly = (lo, hi, Y) => hi.map((p) => f1(X(p[0])) + ',' + f1(Y(p[1]))).concat(lo.slice().reverse().map((p) => f1(X(p[0])) + ',' + f1(Y(p[1])))).join(' ');
+    const fopdt = (j, gain, tau, dead) => (j <= dead ? 0 : gain * (1 - Math.exp(-(j - dead) / tau)));
+    const ticks = [0, 12, 24, 36, 48, 60, 72].map((i) => {
+      const mins = 4 * 60 + 40 + i * 10;
+      const hh = String(Math.floor(mins / 60) % 24).padStart(2, '0');
+      const mm = String(mins % 60).padStart(2, '0');
+      return { x: X(i), label: i === NOW ? 'СЕЙЧАС ' + hh + ':' + mm : hh + ':' + mm, color: i === NOW ? '#16181A' : '#4A4E53', weight: i === NOW ? 700 : 400 };
+    });
+
+    const mkChart = (o) => {
+      const top = 8, ph = o.h - 34;
+      const Y = (v) => top + (o.vmax - v) / (o.vmax - o.vmin) * ph;
+      const fut = range(0, 24);
+      const c = {
+        title: o.title, tag: o.tag, unit: o.unit, value: o.value, valueColor: o.valueColor || '#16181A',
+        chip: o.chip, chipInk: o.chipInk, chipBg: o.chipBg, note: o.note || '',
+        h: o.h, top, ph, tickY: o.h - 8, nowTop: top, nowBot: top + ph,
+        gridY: o.grid.map((g) => ({ y: f1(Y(g)), ty: f1(Y(g) + 4), label: String(g) })),
+        hasLimit: true, limitY: f1(Y(o.limit)), limitTY: f1(Y(o.limit) + (o.limitBelow ? 16 : -6)), limitLabel: o.limitLabel,
+        hist: path(o.hist, Y),
+        showNoChange: !!o.noChange, noChange: o.noChange ? path(fut.map((j) => [NOW + j, o.noChange(j)]), Y) : '',
+        showRecThin: !!o.recThin, recThin: o.recThin ? path(fut.map((j) => [NOW + j, o.recThin(j)]), Y) : '',
+        showActive: !!o.active, active: o.active ? path(fut.map((j) => [NOW + j, o.active(j)]), Y) : '', activeColor: o.activeColor || '#1D5AA6',
+        showBand: !!o.band, bandColor: o.bandColor || '#1D5AA6',
+        band: o.band ? poly(fut.map((j) => [NOW + j, o.band(j)[0]]), fut.map((j) => [NOW + j, o.band(j)[1]]), Y) : '',
+        showRisk: false, riskX: 0, riskW: 0,
+        showGap: !!o.gap, gapX: o.gap ? X(o.gap[0]) : 0, gapW: o.gap ? X(o.gap[1]) - X(o.gap[0]) : 0,
+        gapLabelX: o.gap ? (X(o.gap[0]) + X(o.gap[1])) / 2 : 0, gapLabelY: top + 18,
+        showMsg: !!o.msg, msg: o.msg || '', msg2: o.msg2 || '', msgY: top + ph / 2 - 6, msgY2: top + ph / 2 + 16,
+        endLabels: [],
+      };
+      const last = o.hist[o.hist.length - 1];
+      c.showNowDot = last[0] === NOW; c.dotX = X(last[0]); c.dotY = f1(Y(last[1]));
+      if (o.riskLimit != null && o.band) {
+        const j0 = fut.find((j) => o.band(j)[1] > o.riskLimit);
+        if (j0 != null) { c.showRisk = true; c.riskX = X(NOW + j0); c.riskW = X(N) - X(NOW + j0); c.riskJ = j0; }
+      }
+      const labs = [];
+      if (o.noChange) labs.push({ v: o.noChange(24), text: f1(o.noChange(24)), color: '#5A5F64' });
+      if (o.active) labs.push({ v: o.active(24), text: f1(o.active(24)), color: o.activeColor || '#1D5AA6' });
+      if (o.recThin) labs.push({ v: o.recThin(24), text: f1(o.recThin(24)), color: '#1D5AA6' });
+      labs.sort((a, b) => b.v - a.v);
+      let prev = -99;
+      c.endLabels = labs.map((l) => { let y = Y(l.v) + 5; if (y - prev < 16) y = prev + 16; prev = y; return { y: f1(y), text: l.text, color: l.color }; });
+      return c;
+    };
+
+    // ---------------- SULFUR ----------------
+    let sulfur, flash, dp, mvs, feed;
+    let sulNo = 0, sulRec = 0, sulEdit = 0, riskIn = '';
+    if (isAdv) {
+      const hist = range(0, NOW).map((i) => [i, 7.9 + noise(i, 0.1) + (i > 30 ? (i - 30) * 0.078 : 0)]);
+      const s0 = hist[NOW][1];
+      const nc = (j) => s0 + 0.064 * j;
+      const rec = (j) => s0 + 0.03 * j - fopdt(j, 1.9, 4, 1);
+      const ed = (j) => s0 + 0.03 * j - fopdt(j, 1.0, 4, 1);
+      const bw = (j) => 0.25 + 0.045 * j;
+      sulfur = mkChart({ title: 'СЕРА', tag: 'HT_Q21', unit: 'ppm', value: f1(s0), h: 262, vmin: 6, vmax: 12, grid: [6, 8, 10, 12],
+        chip: 'растёт +0.5 ppm/ч', chipInk: '#7A1712', chipBg: '#FBE9E7', note: 'без изменений пробьёт 10 ppm через 1 ч 50 мин',
+        limit: 10, limitLabel: 'ГОСТ ≤ 10', hist, noChange: nc, recThin: rec, active: ed, activeColor: '#B45309',
+        band: (j) => [ed(j) - bw(j), ed(j) + bw(j)], bandColor: '#B45309', riskLimit: 10 });
+      sulNo = f1(nc(24)); sulRec = f1(rec(24)); sulEdit = f1(ed(24));
+      const j0 = sulfur.riskJ || 24; const m = j0 * 10; riskIn = Math.floor(m / 60) + ' ч ' + String(m % 60).padStart(2, '0') + ' мин';
+      const fh = range(0, NOW).map((i) => [i, 60.3 + noise(i + 7, 0.25)]);
+      const fr = (j) => 60.3 - fopdt(j, 0.6, 4, 1), fe = (j) => 60.3 - fopdt(j, 0.4, 4, 1), fb = (j) => 0.4 + 0.05 * j;
+      flash = mkChart({ title: 'ВСПЫШКА', tag: 'гидрогенизат, закр. тигель', unit: '°C', value: f1(fh[NOW][1]), h: 190, vmin: 53, vmax: 64, grid: [54, 57, 60, 63],
+        chip: 'в норме', chipInk: '#0F5A3A', chipBg: '#E1EFE8', limit: 55, limitBelow: true, limitLabel: 'ГОСТ ≥ 55',
+        hist: fh, noChange: () => 60.3, recThin: fr, active: fe, activeColor: '#B45309', band: (j) => [fe(j) - fb(j), fe(j) + fb(j)], bandColor: '#B45309' });
+    } else if (isAuto) {
+      const hist = range(0, NOW).map((i) => [i, 8.2 + noise(i, 0.1) + (i > 45 ? (i - 45) * 0.12 : 0)]);
+      const s0 = hist[NOW][1];
+      const pl = (j) => s0 + fopdt(j, 0.5, 5, 0);
+      const bw = (j) => 0.2 + 0.02 * j;
+      sulfur = mkChart({ title: 'СЕРА', tag: 'HT_Q21', unit: 'ppm', value: f1(s0), h: 262, vmin: 6, vmax: 12, grid: [6, 8, 10, 12],
+        chip: 'в норме', chipInk: '#0F5A3A', chipBg: '#E1EFE8', note: 'рост от загрузки учтён: верх полосы ниже 10 ppm',
+        limit: 10, limitLabel: 'ГОСТ ≤ 10', hist, noChange: () => s0, active: pl, band: (j) => [pl(j) - bw(j), pl(j) + bw(j)], riskLimit: 10 });
+      const fh = range(0, NOW).map((i) => [i, 60.3 + noise(i + 7, 0.25)]);
+      const fp = (j) => 60.3 - fopdt(j, 0.3, 4, 1), fb = (j) => 0.4 + 0.05 * j;
+      flash = mkChart({ title: 'ВСПЫШКА', tag: 'гидрогенизат, закр. тигель', unit: '°C', value: f1(fh[NOW][1]), h: 190, vmin: 53, vmax: 64, grid: [54, 57, 60, 63],
+        chip: 'в норме', chipInk: '#0F5A3A', chipBg: '#E1EFE8', limit: 55, limitBelow: true, limitLabel: 'ГОСТ ≥ 55',
+        hist: fh, noChange: () => 60.3, active: fp, band: (j) => [fp(j) - fb(j), fp(j) + fb(j)] });
+    } else {
+      const hist = range(0, 41).map((i) => [i, 8.4 + noise(i, 0.1)]);
+      sulfur = mkChart({ title: 'СЕРА', tag: 'HT_Q21', unit: 'ppm', value: '— —', valueColor: '#8A5A0B', h: 196, vmin: 6, vmax: 12, grid: [6, 8, 10, 12],
+        chip: 'нет данных · LIMS 26 ч', chipInk: '#4A3004', chipBg: '#FFF1C2', note: 'последнее значение 8.4 ppm в 11:50',
+        limit: 10, limitLabel: 'ГОСТ ≤ 10', hist, gap: [41, 48], msg: 'Прогноз не строится', msg2: 'нет достоверных данных по сере' });
+      const fh = range(0, NOW).map((i) => [i, 60.3 + noise(i + 7, 0.25)]);
+      const fb = (j) => 1.0 + 0.12 * j;
+      flash = mkChart({ title: 'ВСПЫШКА', tag: 'гидрогенизат, закр. тигель', unit: '°C', value: f1(fh[NOW][1]), h: 172, vmin: 53, vmax: 64, grid: [54, 57, 60, 63],
+        chip: 'σ расширена: LIMS 26 ч', chipInk: '#4A3004', chipBg: '#FFF1C2', limit: 55, limitBelow: true, limitLabel: 'ГОСТ ≥ 55',
+        hist: fh, noChange: () => 60.3, band: (j) => [60.3 - fb(j), 60.3 + fb(j)], bandColor: '#7D8288' });
+    }
+    const flashMargin = f1(60.3 - 0.4 - 55 - 0.0);
+
+    // ---------------- ΔP8 compact ----------------
+    {
+      const Y = (v) => 4 + (500 - v) / 400 * 48;
+      const XD = (i) => i * (700 / 72);
+      const base = (i) => 177 + noise(i, 1.5);
+      let hist, plan, cur;
+      if (isAuto) {
+        hist = range(0, NOW).map((i) => [i, base(i) + (i > 45 ? (i - 45) * 4.5 : 0)]);
+        cur = hist[NOW][1];
+        plan = range(0, 24).map((j) => [NOW + j, cur + fopdt(j, 16, 5, 0)]);
+      } else {
+        hist = range(0, NOW).map((i) => [i, base(i)]);
+        cur = hist[NOW][1];
+        plan = range(0, 24).map((j) => [NOW + j, cur + 0.5]);
+      }
+      dp = { value: cur.toFixed(0), margin: (454.5 - cur).toFixed(0), limitY: f1(Y(454.5)), hist: path(hist, Y, XD), plan: path(plan, Y, XD) };
+    }
+
+    // ---------------- MV mini charts ----------------
+    const XM = (i) => 6 + i * (141 / 48);
+    const mkMv = (o) => {
+      const Y = (v) => 4 + (o.vmax - v) / (o.vmax - o.vmin) * 76;
+      const spAt = (i) => { let v = o.steps[0][1]; o.steps.forEach((s) => { if (i >= s[0]) v = s[1]; }); return v; };
+      let d = 'M' + f1(XM(0)) + ' ' + f1(Y(spAt(0)));
+      for (let i = 1; i <= NOW; i++) { const a = spAt(i - 1), b = spAt(i); if (a !== b) d += ' H' + f1(XM(i)) + ' V' + f1(Y(b)); }
+      d += ' H' + f1(XM(NOW));
+      let pv = [], p = spAt(0);
+      for (let i = 0; i <= NOW; i++) { p = p + (spAt(i) - p) * 0.35; pv.push([i, p + noise(i, o.jit || 0)]); }
+      const fut = (arr) => { let v = spAt(NOW), s = 'M' + f1(XM(NOW)) + ' ' + f1(Y(v)); for (let i = NOW + 1; i <= N; i++) { const nv = (arr.find((q) => q[0] === i) || [0, null])[1]; if (nv != null && nv !== v) { s += ' H' + f1(XM(i)) + ' V' + f1(Y(nv)); v = nv; } } return s + ' H' + f1(XM(N)); };
+      const cur = spAt(NOW);
+      const corrLo = Math.max(o.vmin, cur - (o.step || 0)), corrHi = Math.min(o.vmax, cur + (o.step || 0));
+      return {
+        name: o.name, tag: o.tag, unit: o.unit, value: o.fmt(cur), corr: o.corr,
+        next: o.next || '', nextColor: o.nextColor || '#1D5AA6',
+        border: o.hi ? '2px solid ' + o.hi : '1px solid #B9BBB7',
+        sp: d, pv: path(pv, Y, XM),
+        future: fut(o.future || []), futureColor: o.futureColor || '#7D8288', futureDash: o.futureColor ? 'none' : '4 3',
+        showRecThin: !!o.recThin, recThin: o.recThin ? fut(o.recThin) : '',
+        showCorr: !!o.step && !isRef, corrY: f1(Y(corrHi)), corrH: f1(Y(corrLo) - Y(corrHi)),
+        hasLimit: o.limit != null, limitY: o.limit != null ? f1(Y(o.limit)) : 0,
+        hasWarn: o.warn != null, warnY: o.warn != null ? f1(Y(o.warn)) : 0,
+      };
+    };
+    const fmt1 = (v) => v.toFixed(1), fmt3 = (v) => v.toFixed(3), fmt0 = (v) => v.toFixed(0);
+    const frozen = isRef ? 'заморожено' : '';
+    const fc = isRef ? '#8A5A0B' : '#4A4E53';
+    const mvF9 = { name: 'Сырьё ГО', tag: 'HT_F9', unit: 'т/ч', fmt: fmt1, vmin: 205, vmax: 256, step: 10, limit: 252.8, corr: 'шаг ≤ 10 т/ч/такт · T0 ≤ 252.8', steps: [[0, 219.6]], next: frozen, nextColor: fc, jit: 0.6 };
+    const mvT6 = { name: 'Вход Р-202', tag: 'HT_T6', unit: '°C', fmt: fmt1, vmin: 358, vmax: 369, step: 3, corr: 'шаг ≤ 3 °C/такт · T0 ≤ 380.5', steps: [[0, 362.5], [20, 363.3]], next: frozen, nextColor: fc, jit: 0.08 };
+    const mvP13 = { name: 'Давление', tag: 'HT_P13', unit: 'МПа', fmt: fmt3, vmin: 3.85, vmax: 4.02, corr: 'шаг [из паспорта] · T0 ≤ 4.009', limit: 4.009, steps: [[0, 3.922]], next: frozen, nextColor: fc, jit: 0.002 };
+    const mvGOR = { name: 'Кратность ВСГ', tag: 'HT_GOR', unit: 'нм³/м³', fmt: fmt0, vmin: 340, vmax: 396, corr: 'шаг [из паспорта] · T0 313–490', steps: [[0, 360]], next: frozen, nextColor: fc, jit: 1 };
+    const mvT55 = { name: 'Перевал П-3', tag: 'AVT_T55', unit: '°C', fmt: fmt1, vmin: 376, vmax: 390, step: 3, limit: 386.4, warn: 380, corr: 'шаг ≤ 3 °C/такт · T1 ≤ 386.4', steps: [[0, 381.7]], next: frozen, nextColor: fc, jit: 0.1 };
+    if (isAdv) {
+      Object.assign(mvT6, { hi: '#B45309', next: '→ 364.5', nextColor: '#8A3F06', future: [[49, 364.5]], futureColor: '#B45309', recThin: [[49, 365.0]] });
+      Object.assign(mvGOR, { hi: '#B45309', next: '→ 380', nextColor: '#8A3F06', future: [[49, 380]], futureColor: '#B45309' });
+    } else if (isAuto) {
+      Object.assign(mvF9, { hi: '#17784F', steps: [[0, 219.6], [46, 226.0], [48, 231.0]], next: '→ 236.0', nextColor: '#1D5AA6', future: [[49, 236.0], [50, 240.0]], futureColor: '#1D5AA6' });
+      Object.assign(mvT55, { next: 'без нагрева', nextColor: '#B3261E' });
+    }
+    mvs = [mvF9, mvT6, mvP13, mvGOR, mvT55].map(mkMv);
+
+    // ---------------- FEED ----------------
+    const F = (t, kind, text) => ({ t, text, isOk: kind === 'ok', isShield: kind === 'shield', isWarn: kind === 'warn', isInfo: kind === 'info' });
+    if (isAdv) {
+      feed = [
+        F('12:40', 'info', 'Сформирована рекомендация: T6 +1.7 °C, ВСГ +20. Режим «Сбалансировано».'),
+        F('12:40', 'shield', 'Ядро ограничило T6: агент Качества просил +3.5 °C, допущено +1.7 (коридор 3 °C/такт и запас по T1 реактора).'),
+        F('12:20', 'warn', 'Сера растёт +0.5 ppm/ч: утяжеление сырья с АВТ (S2).'),
+        F('11:30', 'ok', 'Оператор применил: F9 219.6 т/ч (без изменений по рекомендации).'),
+        F('09:10', 'info', 'Анализ LIMS: сера 8.1 ppm, вспышка 60.5 °C. Калибровка ПАК подтверждена.'),
+      ];
+    } else if (isAuto) {
+      feed = [
+        F('12:40', 'ok', 'Автомат: F9 226.0 → 231.0 т/ч. Сера в прогнозе ≤ 9.1 ppm.'),
+        F('12:30', 'shield', 'Ядро запретило T55 +2.0 °C: печь П-3 в зоне предупреждения (> 380 °C, T1).'),
+        F('12:20', 'ok', 'Автомат: F9 219.6 → 226.0 т/ч. Шаг в коридоре (≤ 10 т/ч/такт).'),
+        F('12:20', 'warn', 'Надёжность наложила вето на T6 +2.5 °C: рост перепада Р-202.'),
+        F('12:12', 'info', 'Автомат включён старшим оператором. Цель: «Сбалансировано».'),
+      ];
+    } else {
+      feed = [
+        F('12:38', 'warn', 'Автомат отключён системой: REFUSAL_DATA (ПАК отказ + LIMS > 24 ч). Уставки заморожены.'),
+        F('12:31', 'warn', 'ПАК HT_Q21: нет сигнала 40 мин. Неопределённость по сере вышла за допустимую.'),
+        F('11:56', 'warn', 'ПАК HT_Q21: значение не меняется 6 тактов, подозрение на залипание.'),
+        F('11:50', 'ok', 'Автомат: без изменений уставок, режим в норме.'),
+        F('10:12', 'info', 'Автомат включён старшим оператором. Цель: «Сбалансировано».'),
+      ];
+    }
+
+    const modeColor = isAdv ? '#1D5AA6' : isAuto ? '#17784F' : '#C98A1B';
+    const modeFill = isAdv ? '#1D5AA6' : isAuto ? '#17784F' : '#8A5A0B';
+    return {
+      isAdv, isAuto, isRef, ticks, charts: [sulfur, flash], dp, mvs, feed,
+      sulNo, sulRec, sulEdit, riskIn, flashMargin,
+      modeColor, modeFill,
+      modeLabel: isAuto ? 'АВТОМАТ' : 'СОВЕТ',
+      recLegend: isAdv ? 'рекомендация' : isAuto ? 'план автомата' : 'прогноз',
+      scenarioTag: isAdv ? 'демо: сценарий S2' : isAuto ? 'демо: сценарий S1' : 'демо: сценарий S3d',
+      margin: isAuto ? '1.28' : '1.24',
+      marginDelta: isAdv ? '−6 тыс при правке' : isAuto ? '+38 тыс к 13:10' : '',
+      marginDeltaColor: isAdv ? '#7A1712' : '#0F5A3A',
+      alarmText: isRef ? '1 событие' : 'Тревог нет',
+      alarmBg: isRef ? '#FFF1C2' : '#F4F4F2', alarmBorder: isRef ? '#C98A1B' : '#C9CAC6', alarmInk: isRef ? '#4A3004' : '#3F4448',
+      clock: isAuto ? '12:47' : isRef ? '12:41' : '12:40',
+    };
+  }
+}
+</script>
+</body>
+</html>

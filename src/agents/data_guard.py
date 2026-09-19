@@ -245,6 +245,38 @@ def assess_data(
     )
 
 
+def compute_confidence(
+    n_filled_critical: int,
+    q21_unavailable: bool,
+    lims_age: float,
+) -> Dict[str, Any]:
+    """
+    Индекс уверенности в данных для индикатора пульта оператора (§B1 аудита консоли).
+
+    Чистая функция без побочных эффектов — формула извлечена as-is из
+    node_data_quality_guard, ни одна константа/коэффициент не изменены.
+    """
+    conf_score = max(
+        0.0,
+        min(
+            1.0,
+            1.0
+            - 0.15 * n_filled_critical
+            - (0.20 if q21_unavailable else 0.0)
+            - min(0.30, lims_age / 80.0),
+        ),
+    )
+    level_str = "HIGH" if conf_score >= 0.75 else ("MEDIUM" if conf_score >= 0.50 else "LOW")
+
+    return {
+        "score": round(conf_score, 3),
+        "level": level_str,
+        "n_filled_critical": n_filled_critical,
+        "q21_unavailable": q21_unavailable,
+        "lims_age_hours": lims_age,
+    }
+
+
 def node_data_quality_guard(state: MasGraphState) -> Dict[str, Any]:
     """
     Узел валидации входной телеметрии LangGraph (совместим с MVP и новым ядром).
@@ -364,25 +396,7 @@ def node_data_quality_guard(state: MasGraphState) -> Dict[str, Any]:
         or q21_is_spike
     )
 
-    conf_score = max(
-        0.0,
-        min(
-            1.0,
-            1.0
-            - 0.15 * n_filled_critical
-            - (0.20 if q21_unavailable else 0.0)
-            - min(0.30, lims_age / 80.0),
-        ),
-    )
-    level_str = "HIGH" if conf_score >= 0.75 else ("MEDIUM" if conf_score >= 0.50 else "LOW")
-
-    confidence = {
-        "score": round(conf_score, 3),
-        "level": level_str,
-        "n_filled_critical": n_filled_critical,
-        "q21_unavailable": q21_unavailable,
-        "lims_age_hours": lims_age,
-    }
+    confidence = compute_confidence(n_filled_critical, q21_unavailable, lims_age)
 
     # Проверка на RECOVERY_STALLED из session
     events: List[str] = []
