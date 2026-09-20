@@ -99,24 +99,45 @@ class SafetyKernel:
         u0 = estimate.u_actual if estimate else {}
         u1 = {k: u0.get(k, 0.0) + decision.delta_u.get(k, 0.0) for k in (set(u0.keys()) | set(decision.delta_u.keys()))}
 
-        # 1. Проверка T0.bounds: пределы перемещения органов управления
+        # 1. Проверка T0.bounds: пределы перемещения органов управления.
+        # Fail-closed (аудит 2026-09-20): раньше отсутствие registry.mv_lo/mv_hi целиком или
+        # для конкретного MV молча трактовалось как "ограничения нет" (bounds_ok оставался
+        # True) — для "Fail-Closed Gatekeeper" правильно требовать возможность проверки, а
+        # не тихо пропускать её. Оба живых вызова (graph.py, console/forecast.py) всегда
+        # передают полный RegistryAdapter, так что здесь не должно ничего измениться.
         bounds_ok = True
         bounds_err = []
         if registry:
-            for k, val in u1.items():
-                if hasattr(registry, "mv_lo") and k in registry.mv_lo:
+            if not (hasattr(registry, "mv_lo") and hasattr(registry, "mv_hi")):
+                bounds_ok = False
+                bounds_err.append("registry не предоставляет mv_lo/mv_hi — независимая проверка границ невозможна")
+            else:
+                for k, val in u1.items():
+                    if k not in registry.mv_lo or k not in registry.mv_hi:
+                        bounds_ok = False
+                        bounds_err.append(f"{k}: нет границ в registry.mv_lo/mv_hi")
+                        continue
                     lo, hi = registry.mv_lo[k], registry.mv_hi[k]
                     if val < lo - 1e-4 or val > hi + 1e-4:
                         bounds_ok = False
                         bounds_err.append(f"{k}={val:.2f} вне [{lo}, {hi}]")
         checks.append(check("T0.bounds", bounds_ok, "; ".join(bounds_err)))
 
-        # 2. Проверка T0.rate: скорость изменения за такт
+        # 2. Проверка T0.rate: скорость изменения за такт (тот же fail-closed принцип).
         rate_ok = True
         rate_err = []
         if registry:
-            for k, delta in decision.delta_u.items():
-                if hasattr(registry, "mv_max_move") and k in registry.mv_max_move:
+            if not hasattr(registry, "mv_max_move"):
+                rate_ok = False
+                rate_err.append("registry не предоставляет mv_max_move — независимая проверка скорости хода невозможна")
+            else:
+                for k, delta in decision.delta_u.items():
+                    if abs(delta) <= 1e-9:
+                        continue
+                    if k not in registry.mv_max_move:
+                        rate_ok = False
+                        rate_err.append(f"{k}: нет ограничения скорости в registry.mv_max_move")
+                        continue
                     max_m = registry.mv_max_move[k]
                     if abs(delta) > max_m + 1e-4:
                         rate_ok = False

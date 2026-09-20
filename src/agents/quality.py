@@ -91,8 +91,8 @@ class QualityAgent:
                 defaults = {"S": 8.6, "FLASH": 68.0, "T95": 347.0, "D15": 836.1, "CFPP": -6.0, "CN": 53.75}
                 mean_now = defaults.get(prop_name, 10.0)
 
-            p_u = pred.value(key, transient="ss") or mean_now
-            p_0 = hold_pred.value(key, transient="ss") or mean_now
+            p_u = pred.value(key, domain="steady") or mean_now
+            p_0 = hold_pred.value(key, domain="steady") or mean_now
 
             # Прогноз с учетом смещения
             if domain == "log":
@@ -150,8 +150,8 @@ class QualityAgent:
                 q_est = forecasts.get(spec.quantity)
                 mean_now = q_est.value if q_est else (8.6 if "S" in spec.quantity else 65.0)
 
-            p_u = pred.value(spec.quantity, spec.transient, spec.sense)
-            p_0 = hold_pred.value(spec.quantity, spec.transient, spec.sense)
+            p_u = pred.value(spec.quantity, spec.chance_domain, spec.sense)
+            p_0 = hold_pred.value(spec.quantity, spec.chance_domain, spec.sense)
 
             if p_u is None or p_0 is None:
                 evals.append(

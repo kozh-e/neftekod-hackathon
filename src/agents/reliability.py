@@ -253,8 +253,8 @@ class ReliabilityAgent:
                 f32 = estimate.disturbances.get("AVT_F32", 100.3) if estimate else 100.3
                 feed = estimate.u_actual.get("HT_FEED_SP", 219.6) if estimate else 219.6
                 mean_now = feed / max(f30 + f32, 1e-3)
-            p_u = pred.value(spec.quantity, spec.transient, spec.sense)
-            p_0 = hold_pred.value(spec.quantity, spec.transient, spec.sense)
+            p_u = pred.value(spec.quantity, spec.chance_domain, spec.sense)
+            p_0 = hold_pred.value(spec.quantity, spec.chance_domain, spec.sense)
 
             if mean_now is None or p_u is None or p_0 is None:
                 # Если нет прогноза для зависимого ограничения -> UNKNOWN
@@ -376,10 +376,22 @@ class ReliabilityAgent:
         """
         Применяет правило переходного процесса (§5.4):
         - 'not_worse_than_hold': если текущее состояние / hold уже нарушает предел (slack_hold < 0),
-          ход допустим, если он строго улучшает ограничение (eff <= hold_eff) и не ухудшает его.
+          ход допустим, если он СТРОГО улучшает ограничение (eff < hold_eff) и не ухудшает его.
+
+        Ранее здесь был отдельный хардкод-спецкейс для spec.key == "RX.DP_MAX" — убран
+        (аудит 2026-09-20): RX.DP_MAX теперь сам объявлен в registry.py с
+        transient="not_worse_than_hold" (плюс отдельное chance_domain="extrema" для пиковой
+        проверки траектории — см. registry.py) и покрывается общей веткой ниже.
+
+        ВАЖНО: сравнение строгое (eff < hold_eff), а не eff <= hold_eff. Для самого hold
+        (delta_u={}) eff всегда численно равен hold_eff — нестрогое "<=" ошибочно засчитывало
+        нарушение hold как ACTIVE (удовлетворено), маскируя реальное нарушение hold_merit.
+        Раньше это было случайно исключено хардкод-условием "HT_FEED_SP < 0" (у hold delta_u
+        пуст, get(...,0.0) < 0 всегда False) — при обобщении условия эта неявная защита
+        потерялась и всплыла в test_audit_e9_equipment_envelope_observed_t55_and_dp.
         """
-        if spec.transient == "not_worse_than_hold" or (spec.key == "RX.DP_MAX" and cand.delta_u.get("HT_FEED_SP", 0.0) < 0):
-            if hold_eff > spec.limit and eff <= hold_eff:
+        if spec.transient == "not_worse_than_hold":
+            if hold_eff > spec.limit and eff < hold_eff - 1e-9:
                 return max(slack, 0.01)
         return slack
 

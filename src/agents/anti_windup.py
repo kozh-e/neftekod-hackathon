@@ -6,7 +6,7 @@
 
 from __future__ import annotations
 
-from typing import Tuple, Dict, Any
+from typing import Tuple
 
 
 def apply_anti_windup(
@@ -48,34 +48,3 @@ def apply_anti_windup(
     windup_error = candidate_u - actuator_u
     
     return effective_delta_u, windup_error
-
-
-def apply_anti_windup_dict(
-    current_u_dict: Dict[str, float],
-    delta_u_calc_dict: Dict[str, float],
-    actuator_limits: Dict[str, Dict[str, float]]
-) -> Tuple[Dict[str, float], Dict[str, float]]:
-    """
-    Векторная версия Anti-Windup для словаря технологических уставок.
-    
-    actuator_limits ожидает формат:
-    {
-        "TAG": {"max_rate": float, "min_u": float, "max_u": float},
-        ...
-    }
-    """
-    effective_deltas: Dict[str, float] = {}
-    windup_errors: Dict[str, float] = {}
-
-    for tag, delta_val in delta_u_calc_dict.items():
-        curr_val = current_u_dict.get(tag, 0.0)
-        limits = actuator_limits.get(tag, {})
-        max_rate = limits.get("max_rate", float("inf"))
-        min_u = limits.get("min_u", float("-inf"))
-        max_u = limits.get("max_u", float("inf"))
-
-        eff_delta, err = apply_anti_windup(curr_val, delta_val, max_rate, min_u, max_u)
-        effective_deltas[tag] = eff_delta
-        windup_errors[tag] = err
-
-    return effective_deltas, windup_errors

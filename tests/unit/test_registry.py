@@ -9,8 +9,13 @@ from src.agents.registry import REGISTRY, validate_registry_provenance
 
 
 def test_registry_count_and_provenance():
-    """Проверка наличия всех 34 ограничений и валидности их провенанса."""
-    assert len(REGISTRY) == 34, f"Ожидалось 34 спецификации в REGISTRY, получено {len(REGISTRY)}"
+    """Проверка наличия всех 36 ограничений и валидности их провенанса.
+
+    Было 34 до аудита 2026-09-20: RATE.HT_P_SP.MAX и RATE.HT_GOR_SP.MAX отсутствовали,
+    из-за чего registry.mv_max_move не проверял скорость хода для этих двух MV (обнаружено
+    при переводе safety_kernel/kernel.py::T0.rate на fail-closed).
+    """
+    assert len(REGISTRY) == 36, f"Ожидалось 36 спецификаций в REGISTRY, получено {len(REGISTRY)}"
     violations = validate_registry_provenance()
     assert len(violations) == 0, f"Обнаружены нарушения провенанса в реестре: {violations}"
 

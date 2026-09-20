@@ -34,6 +34,11 @@ class DecisionStore:
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
         self.jsonl_path.parent.mkdir(parents=True, exist_ok=True)
         self._init_db()
+        # Последний записанный в JSONL cycle_id — защита от дублирования строки
+        # при повторном save() для того же цикла (например, ретрай после
+        # временного сбоя). SQLite идемпотентен благодаря INSERT OR REPLACE,
+        # а append в JSONL таким свойством не обладает.
+        self._last_jsonl_cycle_id: Optional[str] = None
 
     def _init_db(self) -> None:
         with contextlib.closing(sqlite3.connect(self.db_path)) as conn:
@@ -64,9 +69,13 @@ class DecisionStore:
             """, (trace.cycle_id, ts_str, status_str, trace.inputs_hash, payload_json))
             conn.commit()
 
-        # Дописываем строку в decisions.jsonl
-        with open(self.jsonl_path, "a", encoding="utf-8") as f:
-            f.write(payload_json + "\n")
+        # Дописываем строку в decisions.jsonl, если это не повторный save()
+        # для того же cycle_id подряд (например, ретрай после сбоя) —
+        # иначе в JSONL накапливаются дубликаты строк.
+        if trace.cycle_id != self._last_jsonl_cycle_id:
+            with open(self.jsonl_path, "a", encoding="utf-8") as f:
+                f.write(payload_json + "\n")
+            self._last_jsonl_cycle_id = trace.cycle_id
 
     def get(self, cycle_id: str) -> Optional[DecisionTrace]:
         """Извлекает DecisionTrace по идентификатору цикла."""

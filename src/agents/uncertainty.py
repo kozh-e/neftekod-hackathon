@@ -11,7 +11,7 @@
 from __future__ import annotations
 
 import math
-from typing import Any, Dict, Mapping, Optional, Sequence, Tuple
+from typing import Dict, Mapping, Optional, Sequence, Tuple
 import numpy as np
 import scipy.stats as stats
 
@@ -114,9 +114,9 @@ class SensitivityModel:
 
 def chance_effective(
     spec: ConstraintSpec,
-    mean_now: Any = None,
-    pred_u: Any = None,
-    pred_u0: Any = None,
+    mean_now: float,
+    pred_u: float,
+    pred_u0: float,
     estimate: Optional[PlantEstimate] = None,
     delta_u: Optional[Mapping[str, float]] = None,
     policy: Optional[PolicyConfig] = None,
@@ -127,35 +127,21 @@ def chance_effective(
     eff = center +/- z(alpha)·sigma_total,
     где sigma_total^2 = sigma_meas^2 + sigma_calib^2(age) + g @ SIGMA_THETA @ g.
 
+    Единственная поддерживаемая сигнатура: mean_now/pred_u/pred_u0 — числовые
+    текущее/прогнозное(кандидат)/прогнозное(hold) значения контролируемой
+    величины; estimate — опциональный PlantEstimate для оценки текущей
+    неопределенности состояния (sigma_meas/sigma_calib по spec.quantity).
+    Раньше функция дополнительно поддерживала неявную (duck-typed) перегрузку
+    chance_effective(spec, estimate, val, policy) — она была удалена как
+    непредсказуемая; ни один вызывающий код в репозитории её не использовал
+    (проверено по всем вызовам chance_effective в src/ и tests/).
+
     Возвращает:
     (effective_value, sigma_total, z).
     """
-    # Поддержка перегрузки chance_effective(spec, estimate, val, policy)
-    if isinstance(mean_now, PlantEstimate) or (hasattr(mean_now, "u_actual") and not isinstance(mean_now, (int, float))):
-        estimate_arg = mean_now
-        val_arg = float(pred_u) if pred_u is not None else 0.0
-        pol_arg = pred_u0 if isinstance(pred_u0, PolicyConfig) else policy
-        return chance_effective(
-            spec=spec,
-            mean_now=val_arg,
-            pred_u=val_arg,
-            pred_u0=val_arg,
-            estimate=estimate_arg,
-            delta_u=delta_u,
-            policy=pol_arg,
-            sens_model=sens_model,
-        )
-
-    if isinstance(pred_u0, PolicyConfig):
-        policy = pred_u0
-        pred_u0 = pred_u
-    if isinstance(estimate, PolicyConfig):
-        policy = estimate
-        estimate = None
-
-    m_now = float(mean_now) if mean_now is not None and not isinstance(mean_now, (PolicyConfig, PlantEstimate)) else (float(pred_u) if pred_u is not None and not isinstance(pred_u, PolicyConfig) else 0.0)
-    p_u = float(pred_u) if pred_u is not None and not isinstance(pred_u, PolicyConfig) else m_now
-    p_0 = float(pred_u0) if pred_u0 is not None and not isinstance(pred_u0, PolicyConfig) else m_now
+    m_now = float(mean_now)
+    p_u = float(pred_u)
+    p_0 = float(pred_u0)
 
     sens = sens_model or SensitivityModel()
     p = policy or PolicyConfig()

@@ -147,6 +147,13 @@ class ConstraintSpec(Frozen):
     domain: Literal["linear", "log"] = "linear"
     chance: bool = False                   # mean +/- z(alpha)·sigma
     transient: Literal["ss", "not_worse_than_hold", "strict"] = "ss"
+    # Домен оценки Prediction.value(): "steady" — только установившийся режим (steady_state);
+    # "extrema" — худшая точка траектории (trajectory_extrema). Раньше это решалось тем же
+    # полем transient ("strict" => extrema) — разведено (аудит 2026-09-20, RX.DP_MAX), т.к.
+    # transient также определяет отдельную семантику лазейки "not_worse_than_hold" в
+    # _apply_transient_rule, и совмещение двух смыслов в одном поле не позволяло независимо
+    # включить обе семантики для одной спецификации.
+    chance_domain: Literal["steady", "extrema"] = "steady"
     depends_on: frozenset[str] = frozenset() # MV, от которых величина зависит структурно
     requires_measurement: str | None = None  # тег-предусловие (AVT_F31, AVT_P52)
     trip_ref: float | None = None          # уставка блокировки для объяснения запаса, если известна
@@ -229,8 +236,11 @@ class Prediction(Frozen):
     trajectory_extrema: dict[str, tuple[float, float, int]]   # (min, max, шаг худшего значения)
     trajectory: dict[str, tuple[float, ...]] | None = None    # хранится для hold и 5 лучших
 
-    def value(self, quantity: str, transient: str = "ss", sense: str = "max") -> float | None:
-        """Извлекает прогнозируемое значение величины для стационарного или динамического режима."""
+    def value(self, quantity: str, domain: str = "steady", sense: str = "max") -> float | None:
+        """Извлекает прогнозируемое значение величины: "steady" — установившийся режим,
+        "extrema" — худшая точка траектории. Раньше домен оценки решался значением поля
+        spec.transient ("strict" => extrema) — теперь это отдельный spec.chance_domain
+        (аудит 2026-09-20); вызывающая сторона должна передавать spec.chance_domain."""
         alias_map = {
             "GODT.S": "HT_S_PRODUCT",
             "GODT.FLASH": "HT_FLASH",
@@ -246,7 +256,7 @@ class Prediction(Frozen):
             keys.append(alias_map[quantity])
 
         for k in keys:
-            if transient == "strict" and k in self.trajectory_extrema:
+            if domain == "extrema" and k in self.trajectory_extrema:
                 min_v, max_v, _ = self.trajectory_extrema[k]
                 return max_v if sense == "max" else min_v
             if k in self.steady_state:

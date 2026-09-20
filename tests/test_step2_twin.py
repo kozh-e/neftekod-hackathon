@@ -1,14 +1,16 @@
-"""Автоматические тесты для Шага 2 MVP: FOPDT цифровой двойник и 17 ВАК."""
+"""Тесты 17 официальных ВАК-формул (test_step2_twin.py, ранее также FOPDT MVP-двойник).
+
+Тесты легаси DiscreteMIMOFOPDTTwin (dead time, ZOH, baseline relaxation, get_telemetry,
+noise) удалены вместе с самим классом src/twin/fopdt.py::DiscreteMIMOFOPDTTwin (аудит
+2026-09-20) — не использовался нигде, кроме этого файла; живая динамика (FirstOrderDeadTime)
+покрыта тестами через src/twin/chain.py::FullChainTwin. VakCalculator (17 официальных ВАК)
+остаётся живым и здесь тестируется без изменений.
+"""
 
 import pytest
 import numpy as np
 
 from src.twin.vak import VakCalculator
-from src.twin.fopdt import (
-    DiscreteMIMOFOPDTTwin,
-    STATE_VARIABLES,
-    DEFAULT_GAIN_MATRIX,
-)
 
 
 @pytest.fixture
@@ -88,108 +90,3 @@ def test_vak_lims_autoregression(sample_telemetry):
     # T95: коэфф. 0.48321 * 10 = 4.8321
     delta_t95 = vak_b["24-2000:GODT:T95"] - vak_a["24-2000:GODT:T95"]
     assert delta_t95 == pytest.approx(4.8321, abs=1e-3)
-
-
-def test_fopdt_dead_time_delay(sample_telemetry):
-    """Тест 4: Проверка транспортного запаздывания (Dead Time)."""
-    twin = DiscreteMIMOFOPDTTwin(dt_minutes=10.0, enable_noise=False)
-    twin.initialize(sample_telemetry)
-
-    # Подаем возмущения:
-    # F19 (орошение верха) имеет задержку d=0 (0 мин) -> отклик T20 на шаге 1
-    # F15 (квенч реактора) имеет задержку d=1 (10 мин) -> отклик T6 на шаге 2
-    # F12 (сырье/орошение) имеет задержку d=2 (20 мин) -> отклик T33 на шаге 3
-    controls = {"F19": 10.0, "F15": 100.0, "F12": 50.0}
-
-    # Шаг 1 (t = 10 мин):
-    s1 = twin.step(controls)
-    # T20 (d=0) должно измениться немедленно
-    assert s1["T20"] != pytest.approx(sample_telemetry["T20"])
-    # T6 (d=1) еще не должно измениться!
-    assert s1["T6"] == pytest.approx(sample_telemetry["T6"])
-    # T33 (d=2) еще не должно измениться!
-    assert s1["T33"] == pytest.approx(sample_telemetry["T33"])
-
-    # Шаг 2 (t = 20 мин):
-    s2 = twin.step(controls)
-    # T6 (d=1) теперь начинает реагировать!
-    assert s2["T6"] != pytest.approx(sample_telemetry["T6"])
-    # T33 (d=2) все еще не изменилось!
-    assert s2["T33"] == pytest.approx(sample_telemetry["T33"])
-
-    # Шаг 3 (t = 30 мин):
-    s3 = twin.step(controls)
-    # T33 (d=2) теперь начинает реагировать!
-    assert s3["T33"] != pytest.approx(sample_telemetry["T33"])
-
-
-def test_fopdt_zoh_exponential_transition(sample_telemetry):
-    """Тест 5: Экспоненциальный переход ZOH и выход на установившееся значение."""
-    twin = DiscreteMIMOFOPDTTwin(dt_minutes=10.0, enable_noise=False)
-    twin.initialize(sample_telemetry)
-
-    # Скачок расхода квенча F15 = +100 нм3/ч
-    delta_f15 = 100.0
-    k_gain_t6 = DEFAULT_GAIN_MATRIX["T6"]["F15"]  # -0.014
-    expected_steady_delta_t6 = k_gain_t6 * delta_f15  # -1.4 °C
-
-    # Прогоняем 30 шагов (300 минут = 7.5 * tau_rx)
-    for _ in range(30):
-        state = twin.step({"F15": delta_f15})
-
-    expected_final_t6 = sample_telemetry["T6"] + expected_steady_delta_t6
-    assert state["T6"] == pytest.approx(expected_final_t6, abs=0.01)
-
-
-def test_fopdt_baseline_relaxation(sample_telemetry):
-    """Тест 6: Релаксация к базису (устранение Baseline Reset Bug)."""
-    twin = DiscreteMIMOFOPDTTwin(dt_minutes=10.0, enable_noise=False)
-    twin.initialize(sample_telemetry)
-
-    # 1. Подаем управляющее воздействие
-    for _ in range(20):
-        twin.step({"F15": 100.0, "F19": 15.0})
-
-    # Состояние изменилось
-    assert twin.current_state["T6"] != pytest.approx(sample_telemetry["T6"])
-
-    # 2. Снимаем воздействие (delta_u = 0)
-    for _ in range(35):
-        twin.step({"F15": 0.0, "F19": 0.0})
-
-    # Процесс плавно вернулся к исходному базису y_base без накопления ошибки
-    assert twin.current_state["T6"] == pytest.approx(sample_telemetry["T6"], abs=0.01)
-    assert twin.current_state["T20"] == pytest.approx(sample_telemetry["T20"], abs=0.01)
-
-
-def test_fopdt_get_telemetry_vak_integration(sample_telemetry):
-    """Тест 7: Метод get_telemetry() и отсутствие ошибки KeyError: 'T50'."""
-    twin = DiscreteMIMOFOPDTTwin(dt_minutes=10.0, enable_noise=False)
-    twin.initialize(sample_telemetry)
-    twin.step({"F15": 50.0})
-
-    telemetry = twin.get_telemetry()
-    assert len(telemetry) > len(sample_telemetry)
-
-    # Физические теги КИПиА присутствуют
-    assert "T20" in telemetry
-    assert "T6" in telemetry
-    assert "T33" in telemetry
-
-    # Виртуальные анализаторы присутствуют
-    assert "AVT6:240-350:T50" in telemetry
-    assert "24-2000:GODT:T50" in telemetry
-
-    # Проверка, что физический тег T22/T33 не путается с ВАК T50
-    assert "AVT6:240-350:T50" != "T50"
-
-
-def test_fopdt_noise_generation(sample_telemetry):
-    """Тест 8: Проверка опциональной генерации шума при enable_noise=True."""
-    twin_noisy = DiscreteMIMOFOPDTTwin(dt_minutes=10.0, enable_noise=True)
-    twin_noisy.initialize(sample_telemetry)
-
-    values = [twin_noisy.step({})["T20"] for _ in range(25)]
-    # Значения должны флуктуировать вокруг исходного базового значения
-    std_observed = np.std(values)
-    assert std_observed > 0.02

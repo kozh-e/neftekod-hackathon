@@ -81,14 +81,17 @@ class ReactorKineticsCalculator:
         # 1. Экзотерма и температуры выхода и слоя
         s_feed = max(0.0, x.s_feed_ppm)
         quench = max(0.0, x.quench_tph)
+        # Защитный клампинг по физическому диапазону правдоподобности HT_T6
+        # (согласован с PHYSICAL_RANGES["HT_T6"] в src/agents/data_guard.py)
+        t_in_c = max(200.0, min(450.0, x.t_in_c))
         delta_t = (
             self.p.c0
             + self.p.cF * feed
             + self.p.cS * (0.878 * s_feed) / 1000.0
             + self.p.cQ * quench
         )
-        t_out = x.t_in_c + delta_t
-        bed_mean = (x.t_in_c + t_out) / 2.0
+        t_out = t_in_c + delta_t
+        bed_mean = (t_in_c + t_out) / 2.0
 
         # 2. Поправки на системное давление и кратность ВСГ/сырье
         p_safe = max(1e-3, x.p_mpa)
@@ -107,8 +110,7 @@ class ReactorKineticsCalculator:
         k_h = self.k_h_ref * exp_h * phi_p * phi_g
 
         # 4. Доля трудноудаляемых сероорганических соединений
-        t95_ref = 353.0
-        f_h_raw = self.p.f_h_ref * math.exp(self.p.b_t95 * (x.t95_feed_c - t95_ref))
+        f_h_raw = self.p.f_h_ref * math.exp(self.p.b_t95 * (x.t95_feed_c - self.p.t95_ref))
         f_h = max(0.0, min(0.05, f_h_raw))
 
         # 5. Выходное содержание серы
