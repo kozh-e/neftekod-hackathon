@@ -115,7 +115,7 @@ def run_structured(
     resp = client.create(
         messages=messages,
         response_format={"type": "json_object"},
-        cassette_name=cassette_name or f"{role}_demo",
+        cassette_name=cassette_name,
     )
 
     raw_json = extract_json_payload(resp.content)
@@ -135,7 +135,7 @@ class DiagnosticsAgent:
     def run(
         self,
         evidence: EvidencePackage,
-        cassette_name: Optional[str] = "diagnostics_demo",
+        cassette_name: Optional[str] = None,
     ) -> DiagnosticReport:
         return run_structured(
             client=self.client,
@@ -155,7 +155,7 @@ class PolicyAdvisor:
     def run(
         self,
         evidence: EvidencePackage,
-        cassette_name: Optional[str] = "policy_demo",
+        cassette_name: Optional[str] = None,
     ) -> PolicyProposal:
         return run_structured(
             client=self.client,
@@ -175,7 +175,7 @@ class BriefingAgent:
     def run(
         self,
         evidence: EvidencePackage,
-        cassette_name: Optional[str] = "briefing_demo",
+        cassette_name: Optional[str] = None,
     ) -> ShiftBriefing:
         return run_structured(
             client=self.client,
@@ -196,7 +196,7 @@ class OperatorQAAgent:
         self,
         evidence: EvidencePackage,
         question: str,
-        cassette_name: Optional[str] = "operator_qa_demo",
+        cassette_name: Optional[str] = None,
     ) -> OperatorAnswer:
         return run_structured(
             client=self.client,

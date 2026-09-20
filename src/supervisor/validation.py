@@ -13,6 +13,7 @@ from typing import Any, Dict, List, Optional, Sequence, Set, Tuple
 from pydantic import BaseModel, Field
 
 from src.agents.policy import (
+    DEFAULT_POLICY_STORE,
     POLICY_WHITELIST,
     WHITELIST_BY_FIELD,
     PolicyConfig,
@@ -146,7 +147,18 @@ class GroundingChecker:
             if tag not in known_tags and not any(tag in spec_k for spec_k in REGISTRY_BY_KEY):
                 unmatched_tags.append(tag)
 
-        passed = (len(missing_refs) == 0 and len(unmatched_numbers) == 0 and len(unmatched_tags) == 0)
+        # 4. Защита от prompt-инъекций в свободном тексте вывода. Раньше INJECTION_PATTERNS
+        # сканировал только PolicyProposal.items[].justification — diagnostics/briefing/
+        # operator_qa вообще не проверялись (см. аудит). full_text уже агрегирует все
+        # строковые/списковые/словарные поля любого output_obj, так что переиспользуем его.
+        blocked_injections = scan_injection_patterns(full_text)
+
+        passed = (
+            len(missing_refs) == 0
+            and len(unmatched_numbers) == 0
+            and len(unmatched_tags) == 0
+            and len(blocked_injections) == 0
+        )
 
         if missing_refs:
             notes.append(f"Неизвестные адреса EvidenceRef: {missing_refs}")
@@ -154,6 +166,7 @@ class GroundingChecker:
             notes.append(f"Числа без подтверждения в доказательствах (сверх 1%): {unmatched_numbers}")
         if unmatched_tags:
             notes.append(f"Неизвестные технологические теги: {unmatched_tags}")
+        notes.extend(blocked_injections)
 
         return GroundingReport(
             passed=passed,
@@ -164,24 +177,51 @@ class GroundingChecker:
         )
 
 
+# Паттерны prompt-инъекций и запрещенных команд. Вынесены на уровень модуля, чтобы
+# использоваться не только PolicyValidator.validate_proposal (только item.justification),
+# но и общим сканером scan_injection_patterns() для любого свободного текста LLM-вывода
+# (diagnostics/briefing/operator_qa раньше вообще не проверялись — см. аудит).
+INJECTION_PATTERNS = [
+    r"увелич(?:ь|ьте)\s+альфа",
+    r"ослаб(?:ь|ьте)\s+безопасность",
+    r"постав(?:ь|ьте)\s+уставк",
+    r"забудь\s+(?:все\s+)?инструкци",
+    r"игнорируй\s+(?:все\s+)?правил",
+    r"setpoint",
+    r"override\s+safety",
+    r"ignore\s+(?:all\s+)?(?:previous\s+)?(?:rules|instructions)",
+    r"отключ(?:и|ить)\s+паз",
+    r"обойд[иу](?:те)?\s+паз",
+    r"390\s*°?[cс]",
+]
+
+
+def scan_injection_patterns(*texts: Optional[str]) -> List[str]:
+    """Сканирует один или несколько текстов на признаки prompt-инъекции.
+
+    Возвращает список описаний найденных совпадений (пусто, если ничего не найдено).
+    Регистронезависимо; не защищает от произвольных unicode-обфускаций, но покрывает
+    больше поверхности, чем прежняя проверка одного поля justification в одной роли.
+    """
+    hits: List[str] = []
+    for text in texts:
+        if not text:
+            continue
+        for pat in INJECTION_PATTERNS:
+            if re.search(pat, text, re.IGNORECASE):
+                hits.append(f"Обнаружена инъекция: '{pat}' в тексте '{text[:80]}...'")
+    return hits
+
+
 class PolicyValidator:
     """Валидатор безопасности предложений изменения политики и фильтр инъекций."""
 
-    # Паттерны prompt-инъекций и запрещенных команд
-    INJECTION_PATTERNS = [
-        r"увелич(?:ь|ьте)\s+альфа",
-        r"ослаб(?:ь|ьте)\s+безопасность",
-        r"постав(?:ь|ьте)\s+уставк",
-        r"забудь\s+инструкци",
-        r"игнорируй\s+правил",
-        r"setpoint",
-        r"override\s+safety",
-        r"отключ(?:и|ить)\s+паз",
-        r"390\s*°?[cс]",
-    ]
+    # Backward-compat алиас: код/тесты, обращающиеся к PolicyValidator.INJECTION_PATTERNS,
+    # продолжают работать после выноса списка на уровень модуля.
+    INJECTION_PATTERNS = INJECTION_PATTERNS
 
     def __init__(self, policy_store: Optional[PolicyStore] = None):
-        self.policy_store = policy_store or PolicyStore()
+        self.policy_store = policy_store or DEFAULT_POLICY_STORE
 
     def validate_proposal(
         self,
@@ -194,11 +234,12 @@ class PolicyValidator:
         blocked_injections: List[str] = []
         notes: List[str] = []
 
-        # 1. Защита от prompt-инъекций в тексте обоснований
+        # 1. Защита от prompt-инъекций в тексте обоснований и заявленного эффекта
         for item in proposal.items:
             for pat in self.INJECTION_PATTERNS:
                 if re.search(pat, item.justification, re.IGNORECASE):
                     blocked_injections.append(f"Обнаружена инъекция в justification: '{pat}'")
+        blocked_injections.extend(scan_injection_patterns(proposal.expected_kpi_impact))
 
         if len(proposal.items) > 3:
             violations.append(f"Превышен лимит: {len(proposal.items)} параметров в запросе (максимум 3)")

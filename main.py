@@ -19,7 +19,7 @@ from pydantic import BaseModel, Field
 
 from src.agents.decision_store import DEFAULT_STORE
 from src.agents.graph import build_core_graph
-from src.agents.policy import PolicyStore
+from src.agents.policy import DEFAULT_POLICY_STORE
 from src.agents.state import RawTelemetry
 from src.xai.card import TZ_REFUSAL_TIMEOUT
 
@@ -35,7 +35,10 @@ app.include_router(console_router, prefix="/api/console")
 app.mount("/console", StaticFiles(directory="static/console", html=True), name="console")
 
 EXECUTOR = ThreadPoolExecutor(max_workers=4)
-POLICY_STORE = PolicyStore()
+# Единый синглтон политики (src/agents/policy.py::DEFAULT_POLICY_STORE) — используется и
+# живым контуром /api/v1/optimize, и супервизорским approve_change_request(), чтобы
+# утверждённые изменения политики реально долетали до контура решений.
+POLICY_STORE = DEFAULT_POLICY_STORE
 
 # Скомпилированные графы
 core_graph = build_core_graph()
@@ -303,8 +306,16 @@ async def reject_change_request(request_id: str, payload: DecisionActionRequest)
 @app.post("/api/v1/supervisor/ask")
 async def ask_supervisor(payload: OperatorQuestionRequest) -> Dict[str, Any]:
     """Консультация оператора по трассам решений и ограничениям установки."""
+    from src.supervisor.cassettes import CassetteNotFoundError, LLMDisabledError
     from src.supervisor.service import DEFAULT_SUPERVISOR_SERVICE
-    ans = await asyncio.wrap_future(EXECUTOR.submit(DEFAULT_SUPERVISOR_SERVICE.answer_operator, payload.question))
+    try:
+        ans = await asyncio.wrap_future(EXECUTOR.submit(DEFAULT_SUPERVISOR_SERVICE.answer_operator, payload.question))
+    except (CassetteNotFoundError, LLMDisabledError) as exc:
+        # cassette_name больше не подменяет собой поиск по отпечатку запроса (см. аудит:
+        # раньше на любой вопрос молча отдавался законсервированный demo-ответ). В
+        # REPLAY_STRICT-режиме без кассеты под конкретный вопрос — явный отказ, а не
+        # чужой правдоподобный ответ.
+        raise HTTPException(status_code=503, detail=f"Супервизор недоступен для этого вопроса: {exc}")
     if not ans:
         raise HTTPException(status_code=500, detail="Супервизор не смог сформировать ответ")
     return ans.model_dump()

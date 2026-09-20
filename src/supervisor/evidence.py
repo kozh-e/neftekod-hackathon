@@ -14,7 +14,7 @@ from pydantic import BaseModel, Field
 
 from src.agents.contracts import DecisionStatus, DecisionTrace
 from src.agents.decision_store import DecisionStore, DEFAULT_STORE
-from src.agents.policy import PolicyConfig, PolicyStore
+from src.agents.policy import DEFAULT_POLICY_STORE, PolicyConfig, PolicyStore
 
 
 class EvidenceRef(BaseModel):
@@ -112,8 +112,7 @@ def build_evidence_package(
     as_of_dt = as_of or datetime.now()
     as_of_str = as_of_dt.isoformat()
 
-    policy_store = PolicyStore()
-    active_policy = policy or policy_store.active_policy
+    active_policy = policy or DEFAULT_POLICY_STORE.active_policy
 
     pkg = EvidencePackage(
         as_of=as_of_str,

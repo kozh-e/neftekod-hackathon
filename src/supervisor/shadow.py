@@ -12,7 +12,7 @@ from pydantic import BaseModel, Field
 
 from src.agents.contracts import DecisionStatus
 from src.agents.graph import build_core_graph
-from src.agents.policy import PolicyConfig, PolicyStore
+from src.agents.policy import DEFAULT_POLICY_STORE, PolicyConfig, PolicyStore
 from src.agents.scenarios import (
     scenario_1_normal_tags,
     scenario_2_quality_risk_tags,
@@ -47,7 +47,7 @@ class ShadowReplayRunner:
     """Теневой симулятор для реплея сценариев с альтернативной политикой."""
 
     def __init__(self, policy_store: Optional[PolicyStore] = None):
-        self.policy_store = policy_store or PolicyStore()
+        self.policy_store = policy_store or DEFAULT_POLICY_STORE
 
     def _apply_proposal(self, base_policy: PolicyConfig, proposal: PolicyProposal) -> PolicyConfig:
         """Создает модифицированную копию политики с примененными изменениями."""
@@ -84,7 +84,7 @@ class ShadowReplayRunner:
             for step in range(steps):
                 metrics.total_steps += 1
                 tags = plant.measure()
-                res = graph.invoke({"tags": tags, "session_id": session_id})
+                res = graph.invoke({"tags": tags, "session_id": session_id, "policy": policy})
                 rec = res.get("final_recommendation")
 
                 if rec:

@@ -54,12 +54,42 @@ class SupervisorService:
             "trigger": "OPERATOR_QUESTION",
             "question": question,
         })
-        return state.get("operator_answer")
+        answer = state.get("operator_answer")
+        grounding = state.get("grounding_report")
+        if answer is not None and grounding is not None and not grounding.passed:
+            logger.warning(
+                "Ответ супервизора не прошёл проверку заземления (grounding), отклонён: %s",
+                "; ".join(grounding.notes) or "нет обоснования числами/ссылками из EvidencePackage",
+            )
+            return OperatorAnswer(
+                question=question,
+                direct_answer="Не удалось сформировать проверяемый ответ (LLM-ответ не подтверждён данными).",
+                technical_explanation=(
+                    "Ответ супервизора не прошёл проверку заземления GroundingChecker "
+                    "(несовпадающие числа/ссылки на EvidencePackage) и не публикуется."
+                ),
+                operator_guidance="Обратитесь к трассам решений напрямую или повторите вопрос позже.",
+            )
+        return answer
 
     def generate_shift_briefing(self) -> ShiftBriefing:
         """Формирует структурированную сводку для передачи смены."""
         state = self.graph.invoke({"trigger": "SHIFT_END"})
-        return state.get("shift_briefing")
+        briefing = state.get("shift_briefing")
+        grounding = state.get("grounding_report")
+        if briefing is not None and grounding is not None and not grounding.passed:
+            logger.warning(
+                "Сводка смены не прошла проверку заземления (grounding), отклонена: %s",
+                "; ".join(grounding.notes) or "нет обоснования числами/ссылками из EvidencePackage",
+            )
+            return ShiftBriefing(
+                briefing_id=briefing.briefing_id,
+                shift_period=briefing.shift_period,
+                summary_text="Автосводка не прошла проверку заземления и не публикуется.",
+                quality_assessment="Недоступно (отказ заземления)",
+                safety_assessment="Недоступно (отказ заземления)",
+            )
+        return briefing
 
 
 DEFAULT_SUPERVISOR_SERVICE = SupervisorService()

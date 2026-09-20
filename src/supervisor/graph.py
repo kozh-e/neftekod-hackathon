@@ -169,23 +169,30 @@ def node_human_approval(state: SupervisorState) -> Dict[str, Any]:
 
 
 def node_publish(state: SupervisorState) -> Dict[str, Any]:
-    """Публикует и сохраняет артефакты в SupervisorStore."""
+    """Публикует и сохраняет артефакты в SupervisorStore.
+
+    Незаземлённые (grounding_report.passed=False) diagnostic_report/shift_briefing
+    не сохраняются как факт — GroundingChecker раньше считался, но никак не влиял
+    на публикацию (см. аудит: node_validate_output -> publish было безусловным ребром).
+    """
     store = DEFAULT_SUPERVISOR_STORE
+    grounding = state.get("grounding_report")
+    grounded = grounding is None or grounding.passed
 
     # 1. Сохранение находки при диагностике
-    if state.get("diagnostic_report"):
+    if state.get("diagnostic_report") and grounded:
         finding = Finding.from_diagnostic_report(state["diagnostic_report"])
         store.save_finding(finding)
 
     # 2. Сохранение сводки смены
-    if state.get("shift_briefing"):
+    if state.get("shift_briefing") and grounded:
         store.save_briefing(state["shift_briefing"])
 
     # 3. Сохранение запроса на изменение политики
     if state.get("change_request"):
         store.save_change_request(state["change_request"])
 
-    return {"status": "PUBLISHED"}
+    return {"status": "PUBLISHED" if grounded else "REFUSED_GROUNDING"}
 
 
 def build_supervisor_graph(checkpointer: Optional[Any] = None) -> StateGraph:

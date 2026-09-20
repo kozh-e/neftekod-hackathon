@@ -13,7 +13,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Literal, Optional
 from pydantic import BaseModel, Field
 
-from src.agents.policy import PolicyConfig, PolicyStore
+from src.agents.policy import DEFAULT_POLICY_STORE, PolicyConfig, PolicyStore
 from src.supervisor.agents import DiagnosticReport, PolicyProposal, ShiftBriefing
 
 
@@ -203,7 +203,10 @@ class SupervisorStore:
         if not req or req.status != "PENDING_APPROVAL":
             return False
 
-        policy_store = PolicyStore()
+        # Единый синглтон DEFAULT_POLICY_STORE — тот же объект, что main.py отдаёт как
+        # POLICY_STORE живому контуру /api/v1/optimize. Раньше здесь создавался одноразовый
+        # PolicyStore(), поэтому утверждение никогда не долетало до реального контура решений.
+        policy_store = DEFAULT_POLICY_STORE
         active = policy_store.active_policy
         p_dict = active.model_dump()
         th_dict = p_dict.get("thresholds", {})
@@ -218,6 +221,9 @@ class SupervisorStore:
         p_dict["version"] = f"{active.version}+patch_{request_id}"
         new_policy = PolicyConfig(**p_dict)
         policy_store.set_active_policy(new_policy)
+        # Персист на диск, чтобы утверждённая политика пережила перезапуск процесса
+        # (PolicyStore._init_default_policy читает ровно этот файл при старте).
+        policy_store.save_to_file(new_policy, policy_store.base_dir / "policy_v1.json")
 
         # Обновляем статус запроса
         req.status = "APPROVED"
