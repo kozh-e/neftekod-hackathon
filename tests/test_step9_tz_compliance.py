@@ -2,13 +2,14 @@
 
 Проверяет:
 1. Константы ADR-12 совпадают с воспроизводимым отчетом scripts/estimate_quality_uncertainty.py; z = 2 (tz:598);
-2. Агент Надежности: вето нагрева печи внутри зоны предупреждения (антипаттерн 3) и вето T55 ≥ 386.4;
-3. Агент Качества: T95 проверяется на товарном топливе через рецепт с запасом 2σ, гидрогенизат по T95 не ветируется;
-   требование стабилизации фракционного состава для ходов печью;
-4. Двойник и экономика печи П-3 (AVT_T55_SP): отклик отборов F30/F32, T95 по ВАК EBP, топливо по F31;
-5. Кандидаты: уставка печи в границах 375…395 °C и связанные ходы охлаждения;
-6. Сценарии ТЗ: «Норма» без лишних действий на динамическом симуляторе установки, «Деградация» — Safe Hold,
+2. Двойник и экономика печи П-3 (AVT_T55_SP): отклик отборов F30/F32, T95 по ВАК EBP, топливо по F31;
+3. Кандидаты: уставка печи в границах 375…395 °C и связанные ходы охлаждения;
+4. Сценарии ТЗ: «Норма» без лишних действий на динамическом симуляторе установки, «Деградация» — Safe Hold,
    «Сквозной консенсус МАС» — нагрев предложен, ветирован, требование качества, карточка XAI.
+
+Проверки легаси-агента (auditors.ReliabilityAgent/QualityAgent, ветирование печи, T95 товарного
+топлива) переехали в test_agents_reliability.py/test_agents_quality.py, тестирующие живые
+v3-агенты (reliability.py/quality.py); одноимённый легаси-модуль auditors.py удалён.
 """
 
 from __future__ import annotations
@@ -20,7 +21,6 @@ from pathlib import Path
 
 import pytest
 
-from src.agents.auditors import QualityAgent, ReliabilityAgent
 from src.agents.candidates import COUPLED_MOVES, DEFAULT_MVS, generate_candidates
 from src.agents.economics import MarginModel
 from src.agents.graph import build_core_graph
@@ -32,10 +32,7 @@ from src.agents.limits import (
     SIGMA_T95_C,
     T55_SP_BOUNDS,
 )
-from src.agents.optimization import RolloutOptimizationAgent
 from src.agents.scenarios import scenario_1_normal_tags, scenario_3_degraded_tags, scenario_4_conflict_tags
-from src.agents.state import ControlCandidate
-from src.agents.tanks import ComponentTank
 from src.twin.chain import FullChainTwin
 from src.twin.params import load_params
 from src.twin.plant import PlantSimulator
@@ -78,91 +75,7 @@ def test_quality_constants_follow_tz_and_estimation_report():
 
 
 # =============================================================================
-# 2. Агент Надежности: печь П-3
-# =============================================================================
-
-def _furnace_cand(cid: str, t55: float, du: float) -> ControlCandidate:
-    return ControlCandidate(candidate_id=cid, delta_u={"AVT_T55_SP": du}, expected_t55=t55)
-
-
-def test_reliability_vetoes_heating_inside_warning_zone():
-    """Антипаттерн 3 ТЗ: нагрев печи с итогом > 380 °C ветируется даже ниже буфера 386.4; охлаждение — нет."""
-    hold = ControlCandidate(candidate_id="cand_hold", is_hold=True, expected_t55=381.7)
-    heat = ReliabilityAgent.audit(_furnace_cand("cand_heat", 383.7, +2.0), hold_cand=hold)
-    assert heat.is_vetoed and "AVT_T55_WARNING_ZONE" in heat.violated_limits
-    assert "антипаттерн 3" in heat.violation_reason
-
-    cool = ReliabilityAgent.audit(_furnace_cand("cand_cool", 379.7, -2.0), hold_cand=hold)
-    assert not cool.is_vetoed
-
-    low_hold = ControlCandidate(candidate_id="cand_hold", is_hold=True, expected_t55=376.0)
-    low_heat = ReliabilityAgent.audit(_furnace_cand("cand_heat_low", 378.0, +2.0), hold_cand=low_hold)
-    assert not low_heat.is_vetoed  # ниже зоны предупреждения нагрев допустим
-
-
-def test_reliability_vetoes_coil_overheat_as_in_scenario_4():
-    """Сценарий 4 ТЗ: T55 = 387 °C превышает буфер 386.4 °C — вето с числами в причине."""
-    hold = ControlCandidate(candidate_id="cand_hold", is_hold=True, expected_t55=385.0)
-    rep = ReliabilityAgent.audit(_furnace_cand("cand_heat", 387.0, +2.0), hold_cand=hold)
-    assert rep.is_vetoed and "AVT_T55" in rep.violated_limits
-    assert "T55=387.00" in rep.violation_reason
-
-
-# =============================================================================
-# 3. Агент Качества: T95 товарного топлива
-# =============================================================================
-
-def _quality_cand(cid: str, t95: float, sulfur: float = 7.5) -> ControlCandidate:
-    return ControlCandidate(
-        candidate_id=cid,
-        horizon_steps=6,
-        steady_state={"HT_S_PRODUCT": sulfur, "HT_FLASH": 68.0, "HT_T95_PRODUCT": t95, "HT_FEED_SP": 219.6,
-                      "HT_D15_PRODUCT": 836.0, "HT_CFPP_PRODUCT": -6.0, "HT_CN_PRODUCT": 53.75},
-    )
-
-
-def test_hydrotreated_t95_not_vetoed_when_blend_is_feasible():
-    """T95 гидрогенизата выше 360 − 2σ не ветируется: норматив проверяется у товарного топлива через рецепт."""
-    rep = QualityAgent.audit(_quality_cand("cand_x", 356.0), lims_age_hours=2.0)
-    assert "HT_T95_PRODUCT" not in rep.violated_limits
-    assert "BLEND_FEASIBILITY" not in rep.violated_limits
-
-    # Запас T95 товарного топлива уменьшается ровно на рост 2σ(age): 2·σ0·(√(1+24/12) − 1)
-    fresh = QualityAgent.audit(_quality_cand("cand_x", 356.0), lims_age_hours=0.0)
-    stale = QualityAgent.audit(_quality_cand("cand_x", 356.0), lims_age_hours=24.0)
-    shrink = fresh.limit_margins["BLEND_T95_GODT_UCB"] - stale.limit_margins["BLEND_T95_GODT_UCB"]
-    assert shrink == pytest.approx(2.0 * SIGMA_T95_C * (3.0 ** 0.5 - 1.0), abs=1e-3)
-
-
-def test_blend_t95_veto_uses_two_sigma_on_hydrotreated_forecast():
-    """Без керосина рецепт невыполним, если T95 ГО ДТ + 2σ > 360 °C; при запасе — выполним."""
-    tanks = {
-        "GODT": ComponentTank(name="GODT", stock_t=5000.0, props={"S_ppm": 7.5, "D15": 836.0, "Flash": 68.0, "CFPP": -6.0, "T95": 358.0, "CN": 53.75}),
-        "Kerosene": ComponentTank(name="Kerosene", stock_t=0.0, props={}),
-        "Gasoil": ComponentTank(name="Gasoil", stock_t=0.0, props={}),
-    }
-    bad = QualityAgent.audit(_quality_cand("cand_bad", 358.0), lims_age_hours=0.0, tanks=tanks)
-    assert "BLEND_FEASIBILITY" in bad.violated_limits
-
-    tanks_ok = copy.deepcopy(tanks)
-    tanks_ok["GODT"].props["T95"] = 350.0
-    good = QualityAgent.audit(_quality_cand("cand_good", 350.0), lims_age_hours=0.0, tanks=tanks_ok)
-    assert "BLEND_FEASIBILITY" not in good.violated_limits
-
-
-def test_quality_states_fractional_stabilization_requirement_for_furnace_moves(twin):
-    """Ход печью меняет T95 ГО ДТ: Агент Качества формулирует требование стабилизации фракционного состава."""
-    cands, _ = RolloutOptimizationAgent().propose(twin)
-    hold = next(c for c in cands if c.is_hold)
-    heat = next(c for c in cands if c.delta_u == {"AVT_T55_SP": 2.0})
-    rep = QualityAgent.audit(heat, hold_cand=hold, lims_age_hours=2.0)
-    assert any("Стабилизация фракционного состава" in r for r in rep.requirements)
-    feed = next(c for c in cands if c.delta_u == {"HT_FEED_SP": 5.0})
-    assert QualityAgent.audit(feed, hold_cand=hold, lims_age_hours=2.0).requirements == []
-
-
-# =============================================================================
-# 4. Двойник и экономика печи
+# 2. Двойник и экономика печи
 # =============================================================================
 
 def test_twin_furnace_setpoint_response(twin):
@@ -189,7 +102,7 @@ def test_margin_model_values_furnace_move(twin):
 
 
 # =============================================================================
-# 5. Кандидаты
+# 3. Кандидаты
 # =============================================================================
 
 def test_furnace_candidates_and_coupled_cooling_moves():
@@ -206,7 +119,7 @@ def test_furnace_candidates_and_coupled_cooling_moves():
 
 
 # =============================================================================
-# 6. Сценарии ТЗ
+# 4. Сценарии ТЗ
 # =============================================================================
 
 def test_scenario_1_normal_no_excess_actions_and_no_furnace_heating(graph):

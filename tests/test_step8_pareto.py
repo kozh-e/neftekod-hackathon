@@ -37,7 +37,6 @@ from src.agents.pareto import (
     analyze_pareto,
     dominates,
     format_pareto_summary,
-    node_pareto,
     non_dominated_sort,
     pareto_front_indices,
     sulfur_measurement_age,
@@ -231,16 +230,19 @@ def test_sulfur_measurement_age_follows_quality_agent():
     assert sulfur_measurement_age(None, 5.0) == 5.0
 
 
-def test_node_pareto_reads_lims_age_from_raw_telemetry():
-    """Узел графа: при недоступном HT_Q21 буфер серы расширяется по возрасту ЛИМС из raw_telemetry."""
+def test_analyze_pareto_reads_lims_age_from_raw_telemetry():
+    """При недоступном HT_Q21 буфер серы расширяется по возрасту ЛИМС из raw_telemetry."""
+    from src.agents.lims import lims_age_from_state
     from src.agents.state import RawTelemetry
 
     state = {
         "tags": {"HT_Q21": float("nan")},
         "raw_telemetry": RawTelemetry(timestamp="2026-09-16T10:00:00", P52=0.045, D10=840.0, lims_age_hours=12.0),
-        "candidates": [make_cand("cand_x", 0.0, 8.0, 364.0)],
     }
-    analysis = node_pareto(state)["pareto"]
+    analysis = analyze_pareto(
+        candidates=[make_cand("cand_x", 0.0, 8.0, 364.0)],
+        sulfur_age_hours=sulfur_measurement_age(state["tags"], lims_age_from_state(state)),
+    )
     assert isinstance(analysis, ParetoAnalysis)
     assert analysis.sulfur_age_hours == 12.0
     assert analysis.sulfur_offset_ppm == pytest.approx(QUALITY_Z * SIGMA_S0_PPM * math.sqrt(2.0), abs=1e-4)

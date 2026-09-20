@@ -47,7 +47,7 @@ from src.agents.limits import (
     SULFUR_PRODUCT_MAX,
 )
 from src.agents.lims import lims_age_from_state
-from src.agents.state import ControlCandidate, MasGraphState, SafetyAuditReport
+from src.agents.state import ControlCandidate, SafetyAuditReport
 
 Sense = Literal["max", "min"]
 PointStatus = Literal["pareto", "dominated", "vetoed", "incomplete"]
@@ -467,19 +467,13 @@ def trade_off_alternatives(analysis: ParetoAnalysis, reference_id: Optional[str]
 
 
 # =============================================================================
-# Узел LangGraph и объяснение для XAI
+# Объяснение для XAI
 # =============================================================================
 
-def node_pareto(state: MasGraphState) -> Dict[str, Any]:
-    """Узел LangGraph: Парето-анализ допустимых кандидатов (Fan-In после аудиторов, перед арбитражем)."""
-    analysis = analyze_pareto(
-        candidates=state.get("candidates", []),
-        vetoed_ids=state.get("vetoed_candidates", []),
-        risk_penalties=state.get("risk_penalties", {}),
-        audit_reports=state.get("audit_reports", []),
-        sulfur_age_hours=sulfur_measurement_age(state.get("tags"), lims_age_from_state(state)),
-    )
-    return {"pareto": analysis}
+# node_pareto (узел LangGraph, Fan-In после аудиторов) удалён (аудит 2026-09-20): работал
+# на легаси MasGraphState/vetoed_candidates/audit_reports и не был подключён к
+# build_core_graph() — вызывался только из мёртвого MVP-графа. analyze_pareto() ниже
+# по-прежнему живой (console/service.py::build_pareto как fallback-реконструкция).
 
 
 def _fmt_point(point: ParetoPoint) -> str:
