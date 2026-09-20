@@ -11,7 +11,7 @@ from typing import Any, Dict, List, Optional
 from pydantic import BaseModel, Field
 
 from src.agents.contracts import DecisionStatus
-from src.agents.graph import build_mvp_graph
+from src.agents.graph import build_core_graph
 from src.agents.policy import PolicyConfig, PolicyStore
 from src.agents.scenarios import (
     scenario_1_normal_tags,
@@ -65,7 +65,7 @@ class ShadowReplayRunner:
 
     def _run_benchmark_suite(self, policy: PolicyConfig) -> ShadowMetrics:
         """Прогоняет контрольные тестовые сценарии (S1, S2, S4) и собирает метрики безопасности."""
-        graph = build_mvp_graph()
+        graph = build_core_graph()
         metrics = ShadowMetrics()
 
         scenarios = [
@@ -98,9 +98,9 @@ class ShadowReplayRunner:
                     elif "REFUSAL" in st:
                         metrics.refusal_count += 1
 
-                    cand = res.get("selected_candidate")
-                    if cand and getattr(cand, "expected_margin", None):
-                        total_margin += cand.expected_margin
+                    decision = res.get("decision")
+                    if decision and decision.merit and decision.merit.utility_rub_h:
+                        total_margin += decision.merit.utility_rub_h
                         margin_samples += 1
 
                 # Проверка физической правды стенда PlantSimulator

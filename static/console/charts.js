@@ -1,7 +1,8 @@
 /**
  * Модуль отрисовки графиков пульта старшего оператора (R5).
- * Реализует стандарты ISA-101 и спецификацию ROLE_5_frontend_charts.md.
- * Обеспечивает синхронизированный курсор, тултипы, P10-P90 полосы, коридоры и риски.
+ * Реализует стандарты ISA-101. Все графики — инстансы Apache ECharts
+ * (static/console/vendor/echarts.min.js), синхронизированные по курсору
+ * через echarts.connect() в пределах одной вкладки.
  */
 
 const TOKENS = {
@@ -18,41 +19,93 @@ const TOKENS = {
   ink3: "#4A4E53",
   grid: "#C9CAC6",
   warn: "#A86A0A",
+  gap: "#8A6A2A",
+};
+
+const FONT_SANS = "'IBM Plex Sans', sans-serif";
+const FONT_MONO = "'IBM Plex Mono', monospace";
+
+// Общий стиль тултипа — используется всеми графиками (CV/DP/MV и Парето),
+// чтобы визуально не расходились два разных «языка» тултипов.
+const TOOLTIP_BASE = {
+  backgroundColor: "rgba(22, 24, 26, 0.95)",
+  borderColor: "#3F4448",
+  textStyle: { color: "#FFFFFF", fontFamily: FONT_SANS, fontSize: 13 },
 };
 
 /**
- * Создает и монтирует структуры графиков.
+ * Получает существующий инстанс ECharts на контейнере либо создает новый.
+ * Пересоздает инстанс, если контейнер был перезаписан не-ECharts содержимым
+ * (например, текстовой заглушкой «нет данных»).
+ */
+function getOrCreateChart(container) {
+  if (!container || !window.echarts) return null;
+  let chart = window.echarts.getInstanceByDom(container);
+  if (chart) {
+    const hasCanvas = container.querySelector("canvas");
+    if (!hasCanvas) {
+      window.echarts.dispose(container);
+      chart = null;
+    }
+  }
+  if (!chart) {
+    container.innerHTML = "";
+    chart = window.echarts.init(container);
+  }
+  return chart;
+}
+
+/**
+ * Показывает/скрывает центрированный текстовый оверлей поверх графика
+ * (используется только для редкого случая «прогноз не строится» —
+ * не относится к данным графика, поэтому не рисуется штатными средствами ECharts).
+ */
+function setOverlayText(container, lines) {
+  if (!container) return;
+  container.style.position = container.style.position || "relative";
+  let overlay = container.querySelector(":scope > .chart-overlay-text");
+  if (!lines || lines.length === 0) {
+    if (overlay) overlay.style.display = "none";
+    return;
+  }
+  if (!overlay) {
+    overlay = document.createElement("div");
+    overlay.className = "chart-overlay-text";
+    container.appendChild(overlay);
+  }
+  overlay.innerHTML = lines
+    .map((l, i) => `<div style="${i === 0 ? `color:${TOKENS.warn};font-weight:700;font-size:16px;` : `color:${TOKENS.ink3};font-size:13px;`}">${l}</div>`)
+    .join("");
+  overlay.style.display = "flex";
+}
+
+/**
+ * Создает и монтирует инстансы ECharts для 8 графиков вкладки.
+ * Группа синхронизации курсора определяется по id контейнера серы
+ * ("chart-manual-*" -> вкладка ручного управления, иначе — обзор).
  * @param {Object} rootEls - { sulfur: HTMLElement, flash: HTMLElement, dp: HTMLElement, mv: HTMLElement[5] }
  * @returns {Object} handle
  */
 export function mountCharts(rootEls) {
+  const groupId = rootEls.sulfur && rootEls.sulfur.id.includes("manual") ? "manual-charts" : "overview-charts";
+
   const handle = {
     rootEls,
+    groupId,
     view: null,
-    hoveredX: null,
-    hoveredTime: null,
-    tooltipEl: null,
+    charts: {
+      sulfur: getOrCreateChart(rootEls.sulfur),
+      flash: getOrCreateChart(rootEls.flash),
+      dp: getOrCreateChart(rootEls.dp),
+      mv: (rootEls.mv || []).map((el) => getOrCreateChart(el)),
+    },
   };
 
-  // Создаем плавающий тултип
-  let tip = document.getElementById("charts-shared-tooltip");
-  if (!tip) {
-    tip = document.createElement("div");
-    tip.id = "charts-shared-tooltip";
-    tip.style.position = "fixed";
-    tip.style.pointerEvents = "none";
-    tip.style.background = "rgba(22, 24, 26, 0.94)";
-    tip.style.color = "#FFFFFF";
-    tip.style.padding = "8px 12px";
-    tip.style.borderRadius = "6px";
-    tip.style.fontSize = "13px";
-    tip.style.fontFamily = "'IBM Plex Mono', monospace";
-    tip.style.zIndex = "1000";
-    tip.style.display = "none";
-    tip.style.boxShadow = "0 4px 12px rgba(0,0,0,0.3)";
-    document.body.appendChild(tip);
+  const allCharts = [handle.charts.sulfur, handle.charts.flash, handle.charts.dp, ...handle.charts.mv].filter(Boolean);
+  allCharts.forEach((c) => { c.group = groupId; });
+  if (window.echarts && allCharts.length > 0) {
+    window.echarts.connect(groupId);
   }
-  handle.tooltipEl = tip;
 
   return handle;
 }
@@ -70,438 +123,297 @@ export function renderCharts(handle, view) {
   const nowMs = new Date(state.clock.now).getTime();
   const startMs = nowMs - historyHours * 3600 * 1000;
   const endMs = nowMs + 4 * 3600 * 1000;
-  const totalMs = endMs - startMs;
 
   const activeColor = view.activeColor === "edit" ? TOKENS.edit : TOKENS.rec;
+  const ctx = { state, view, startMs, endMs, nowMs, activeColor };
 
-  // 1. График серы (CV 0)
-  if (handle.rootEls.sulfur && state.series.cv.length > 0) {
-    const sSeries = state.series.cv[0];
-    renderCvSvg(
-      handle.rootEls.sulfur,
-      sSeries,
-      state,
-      view,
-      startMs,
-      endMs,
-      nowMs,
-      totalMs,
-      activeColor,
-      handle,
-      220
-    );
+  if (handle.charts.sulfur && state.series.cv.length > 0) {
+    renderCvChart(handle.rootEls.sulfur, handle.charts.sulfur, state.series.cv[0], ctx);
   }
-
-  // 2. График вспышки (CV 1)
-  if (handle.rootEls.flash && state.series.cv.length > 1) {
-    const fSeries = state.series.cv[1];
-    renderCvSvg(
-      handle.rootEls.flash,
-      fSeries,
-      state,
-      view,
-      startMs,
-      endMs,
-      nowMs,
-      totalMs,
-      activeColor,
-      handle,
-      200
-    );
+  if (handle.charts.flash && state.series.cv.length > 1) {
+    renderCvChart(handle.rootEls.flash, handle.charts.flash, state.series.cv[1], ctx);
   }
-
-  // 3. Компактный перепад давления (DP8)
-  if (handle.rootEls.dp && state.series.cv.length > 2) {
-    const dpSeries = state.series.cv[2];
-    renderDpCompactSvg(
-      handle.rootEls.dp,
-      dpSeries,
-      state,
-      view,
-      startMs,
-      endMs,
-      nowMs,
-      totalMs,
-      activeColor,
-      handle
-    );
+  if (handle.charts.dp && state.series.cv.length > 2) {
+    renderDpChart(handle.charts.dp, state.series.cv[2], ctx);
   }
-
-  // 4. 5 мини-графиков MV
-  if (handle.rootEls.mv && Array.isArray(handle.rootEls.mv)) {
+  if (Array.isArray(handle.charts.mv)) {
     state.series.mv.forEach((mvSeries, idx) => {
-      const el = handle.rootEls.mv[idx];
-      if (el) {
-        renderMvSvg(
-          el,
-          mvSeries,
-          state,
-          view,
-          startMs,
-          endMs,
-          nowMs,
-          totalMs,
-          activeColor,
-          handle
-        );
-      }
+      const chart = handle.charts.mv[idx];
+      if (chart) renderMvChart(chart, mvSeries, ctx);
     });
   }
 }
 
 export function resizeCharts(handle) {
-  if (handle && handle.view) {
-    renderCharts(handle, handle.view);
-  }
+  if (!handle) return;
+  const allCharts = [handle.charts.sulfur, handle.charts.flash, handle.charts.dp, ...(handle.charts.mv || [])].filter(Boolean);
+  allCharts.forEach((c) => c.resize());
+  if (handle.view) renderCharts(handle, handle.view);
 }
 
 // -----------------------------------------------------------------------------
-// Вспомогательные функции отрисовки SVG
+// CV-график (сера, вспышка): факт, hold/rec/active траектории, P10-P90, лимиты,
+// зона прогноза, зона риска, пропуски сигнала ПАК.
 // -----------------------------------------------------------------------------
 
-function renderCvSvg(container, cvSeries, state, view, startMs, endMs, nowMs, totalMs, activeColor, handle, h) {
-  const w = container.clientWidth || 800;
-  if (container.clientHeight > 0) {
-    h = container.clientHeight;
-  }
-  const padL = 60;
-  const padR = 60;
-  const padT = 16;
-  const padB = 26;
-  const plotW = Math.max(10, w - padL - padR);
-  const plotH = Math.max(10, h - padT - padB);
+function computeGapAreas(history, xNow) {
+  const areas = [];
+  let gapStart = null;
+  history.forEach((pt) => {
+    const tMs = new Date(pt.t).getTime();
+    if (pt.quality === "MISSING" || pt.quality === "BAD") {
+      if (gapStart == null) gapStart = tMs;
+    } else if (gapStart != null) {
+      areas.push([gapStart, tMs]);
+      gapStart = null;
+    }
+  });
+  if (gapStart != null) areas.push([gapStart, xNow]);
+  return areas;
+}
 
+function gapMarkAreaData(gapAreas) {
+  return gapAreas.map(([from, to]) => [
+    {
+      xAxis: from,
+      itemStyle: { color: TOKENS.gap, opacity: 0.22 },
+      label: { show: true, formatter: "нет сигнала ПАК", color: TOKENS.ink, fontWeight: 600, fontSize: 12, fontFamily: FONT_SANS },
+    },
+    { xAxis: to },
+  ]);
+}
+
+function factSeriesData(history) {
+  // null разрывает линию на пропусках — так ECharts не соединяет их отрезком.
+  return history.map((pt) => {
+    if (pt.v == null || pt.quality === "MISSING") return { value: [new Date(pt.t).getTime(), null] };
+    return { value: [new Date(pt.t).getTime(), pt.v] };
+  });
+}
+
+function bandSeries(bands, key) {
+  return (bands || []).map((b) => ({ t: new Date(b.t).getTime(), v: b[key] }));
+}
+
+/** Стандартный "confidence band" рецепт ECharts: нижняя граница прозрачна,
+ * верхняя стекается поверх дельты (p90 - p10) с заливкой. */
+function confidenceBandSeries(bands, color) {
+  const lower = bands.map((b) => [b.t, b.p10]);
+  const delta = bands.map((b) => [b.t, b.p90 - b.p10]);
+  return [
+    {
+      name: "p10",
+      type: "line",
+      data: lower,
+      stack: "confidence-band",
+      symbol: "none",
+      lineStyle: { opacity: 0 },
+      areaStyle: { opacity: 0 },
+      silent: true,
+      z: 1,
+    },
+    {
+      name: "p90",
+      type: "line",
+      data: delta,
+      stack: "confidence-band",
+      symbol: "none",
+      lineStyle: { opacity: 0 },
+      areaStyle: { color, opacity: 0.18 },
+      silent: true,
+      z: 1,
+    },
+  ];
+}
+
+function stepLikeLine(points, extra) {
+  return {
+    type: "line",
+    data: points.map((p) => [p.t, p.v]),
+    symbol: "none",
+    ...extra,
+  };
+}
+
+function renderCvChart(container, chart, cvSeries, ctx) {
+  const { state, view, startMs, endMs, nowMs, activeColor } = ctx;
+  const active = view.active;
   const yMin = cvSeries.y_range ? cvSeries.y_range[0] : 0;
   const yMax = cvSeries.y_range ? cvSeries.y_range[1] : 100;
 
-  const getX = (t) => padL + ((new Date(t).getTime() - startMs) / totalMs) * plotW;
-  const getY = (v) => padT + plotH - ((v - yMin) / (yMax - yMin)) * plotH;
+  const gapAreas = computeGapAreas(cvSeries.history, nowMs);
+  const markAreaData = [
+    [{ xAxis: nowMs, itemStyle: { color: "#FFFFFF", opacity: 0.55 } }, { xAxis: endMs }],
+  ];
+  const risk = active && active.risk ? active.risk.find((r) => r.cv === cvSeries.key) : null;
+  if (risk && risk.first_breach_at && risk.probability >= 0.05) {
+    markAreaData.push([
+      { xAxis: new Date(risk.first_breach_at).getTime(), itemStyle: { color: TOKENS.limit, opacity: 0.12 } },
+      { xAxis: endMs },
+    ]);
+  }
+  markAreaData.push(...gapMarkAreaData(gapAreas));
 
-  const xNow = getX(state.clock.now);
+  const markLineData = [
+    {
+      yAxis: cvSeries.limit.value,
+      lineStyle: { color: TOKENS.limit, width: 2 },
+      label: {
+        formatter: cvSeries.limit.label,
+        color: TOKENS.limit,
+        fontWeight: 600,
+        fontSize: 12,
+        position: cvSeries.limit.sense === "max" ? "insideEndTop" : "insideEndBottom",
+      },
+    },
+    {
+      xAxis: nowMs,
+      lineStyle: { color: TOKENS.ink, width: 1.5, type: [4, 3] },
+      label: { formatter: "СЕЙЧАС", color: TOKENS.ink, fontWeight: 700, fontSize: 11, position: "insideEndTop" },
+    },
+  ];
 
-  let svg = `<svg width="100%" height="100%" viewBox="0 0 ${w} ${h}" preserveAspectRatio="none" style="display:block; overflow:hidden; max-width: 100%;">`;
+  const series = [];
 
-  // Штриховка для пропусков данных
-  svg += `<defs>
-    <pattern id="hatch-gap-${cvSeries.key}" width="10" height="10" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
-      <line x1="0" y1="0" x2="0" y2="10" stroke="#8A6A2A" stroke-width="3" stroke-opacity="0.35" />
-    </pattern>
-  </defs>`;
-
-  // Зона прогноза (фон)
-  svg += `<rect x="${xNow}" y="${padT}" width="${padL + plotW - xNow}" height="${plotH}" fill="#FFFFFF" fill-opacity="0.55" />`;
-
-  // Сетка Y: 4 линии с подписями
-  for (let i = 0; i <= 3; i++) {
-    const val = yMin + (i / 3) * (yMax - yMin);
-    const y = getY(val);
-    svg += `<line x1="${padL}" y1="${y}" x2="${padL + plotW}" y2="${y}" stroke="${TOKENS.grid}" stroke-width="1" />`;
-    svg += `<text x="${padL - 8}" y="${y + 4}" fill="${TOKENS.ink3}" font-size="13" text-anchor="end" class="mono">${val.toFixed(1)}</text>`;
+  const activeBands = active && active.cv && active.cv[cvSeries.key] ? active.cv[cvSeries.key] : null;
+  const hasSigmas = activeBands && activeBands.some((b) => b.p10 != null && b.p90 != null);
+  if (activeBands && hasSigmas) {
+    const bands = activeBands.map((b) => ({ t: new Date(b.t).getTime(), p10: b.p10, p90: b.p90 }));
+    series.push(...confidenceBandSeries(bands, activeColor));
   }
 
-  // Временные метки по X
-  const stepMs = totalMs <= 5 * 3600 * 1000 ? 15 * 60 * 1000 : 2 * 3600 * 1000;
-  const firstTick = Math.ceil(startMs / stepMs) * stepMs;
-  for (let t = firstTick; t <= endMs; t += stepMs) {
-    const x = padL + ((t - startMs) / totalMs) * plotW;
-    const dt = new Date(t);
-    const hh = String(dt.getUTCHours()).padStart(2, "0");
-    const mm = String(dt.getUTCMinutes()).padStart(2, "0");
-    svg += `<line x1="${x}" y1="${padT + plotH}" x2="${x}" y2="${padT + plotH + 4}" stroke="${TOKENS.grid}" stroke-width="1" />`;
-    svg += `<text x="${x}" y="${padT + plotH + 18}" fill="${TOKENS.ink3}" font-size="12" text-anchor="middle" class="mono">${hh}:${mm}</text>`;
-  }
-
-  // Красная заливка участка риска
-  const active = view.active;
-  if (active && active.risk) {
-    const r = active.risk.find((x) => x.cv === cvSeries.key);
-    if (r && r.first_breach_at && r.probability >= 0.05) {
-      const rx = getX(r.first_breach_at);
-      const rw = padL + plotW - rx;
-      if (rw > 0) {
-        svg += `<rect x="${rx}" y="${padT}" width="${rw}" height="${plotH}" fill="${TOKENS.limit}" fill-opacity="0.12" />`;
-      }
-    }
-  }
-
-  // Заштрихованные пропуски данных в истории
-  let gapStart = null;
-  cvSeries.history.forEach((pt) => {
-    if (pt.quality === "MISSING" || pt.quality === "BAD") {
-      if (!gapStart) gapStart = pt.t;
-    } else {
-      if (gapStart) {
-        const gx = getX(gapStart);
-        const gw = getX(pt.t) - gx;
-        svg += `<rect x="${gx}" y="${padT}" width="${gw}" height="${plotH}" fill="url(#hatch-gap-${cvSeries.key})" />`;
-        svg += `<text x="${gx + gw / 2}" y="${padT + plotH / 2}" fill="${TOKENS.ink}" font-size="13" font-weight="600" text-anchor="middle">нет сигнала ПАК</text>`;
-        gapStart = null;
-      }
-    }
-  });
-  if (gapStart) {
-    const gx = getX(gapStart);
-    const gw = xNow - gx;
-    svg += `<rect x="${gx}" y="${padT}" width="${gw}" height="${plotH}" fill="url(#hatch-gap-${cvSeries.key})" />`;
-    svg += `<text x="${gx + gw / 2}" y="${padT + plotH / 2}" fill="${TOKENS.ink}" font-size="13" font-weight="600" text-anchor="middle">нет сигнала ПАК</text>`;
-  }
-
-  // Горизонтальная линия лимита
-  const yLim = getY(cvSeries.limit.value);
-  svg += `<line x1="${padL}" y1="${yLim}" x2="${padL + plotW}" y2="${yLim}" stroke="${TOKENS.limit}" stroke-width="2" />`;
-  svg += `<text x="${padL + 6}" y="${cvSeries.limit.sense === 'max' ? yLim - 6 : yLim + 14}" fill="${TOKENS.limit}" font-size="12" font-weight="600">${cvSeries.limit.label}</text>`;
-
-  // Полоса P10-P90 активной траектории
-  if (active && active.cv && active.cv[cvSeries.key]) {
-    const bands = active.cv[cvSeries.key];
-    const hasSigmas = bands.some((b) => b.p10 != null && b.p90 != null);
-    if (hasSigmas) {
-      let polyPts = [];
-      bands.forEach((b) => polyPts.push(`${getX(b.t)},${getY(b.p90)}`));
-      for (let i = bands.length - 1; i >= 0; i--) {
-        polyPts.push(`${getX(bands[i].t)},${getY(bands[i].p10)}`);
-      }
-      svg += `<polygon points="${polyPts.join(' ')}" fill="${activeColor}" fill-opacity="0.18" />`;
-    } else {
-      svg += `<text x="${padL + plotW - 10}" y="${padT + 16}" fill="${TOKENS.ink3}" font-size="11" text-anchor="end">σ неизвестна</text>`;
-    }
-  }
-
-  // Траектория «без изменений» (hold)
   if (state.hold && state.hold.cv && state.hold.cv[cvSeries.key]) {
-    const holdPts = state.hold.cv[cvSeries.key];
-    const pathD = holdPts.map((b, i) => `${i === 0 ? 'M' : 'L'} ${getX(b.t)} ${getY(b.p50)}`).join(' ');
-    svg += `<path d="${pathD}" fill="none" stroke="${TOKENS.hold}" stroke-width="2" stroke-dasharray="6 5" />`;
+    series.push(stepLikeLine(bandSeries(state.hold.cv[cvSeries.key], "p50"), {
+      name: "hold",
+      lineStyle: { color: TOKENS.hold, width: 2, type: "dashed" },
+      z: 2,
+    }));
   }
 
-  // Рекомендация тонким контуром (recThin)
   if (view.recThin && view.recThin.cv && view.recThin.cv[cvSeries.key]) {
-    const recPts = view.recThin.cv[cvSeries.key];
-    const pathD = recPts.map((b, i) => `${i === 0 ? 'M' : 'L'} ${getX(b.t)} ${getY(b.p50)}`).join(' ');
-    svg += `<path d="${pathD}" fill="none" stroke="${TOKENS.rec}" stroke-width="1.5" />`;
+    series.push(stepLikeLine(bandSeries(view.recThin.cv[cvSeries.key], "p50"), {
+      name: "рекомендация",
+      lineStyle: { color: TOKENS.rec, width: 1.5 },
+      z: 2,
+    }));
   }
 
-  // Активная траектория
-  if (active && active.cv && active.cv[cvSeries.key]) {
-    const actPts = active.cv[cvSeries.key];
-    const pathD = actPts.map((b, i) => `${i === 0 ? 'M' : 'L'} ${getX(b.t)} ${getY(b.p50)}`).join(' ');
-    svg += `<path d="${pathD}" fill="none" stroke="${activeColor}" stroke-width="3" />`;
+  let activeLastPoint = null;
+  if (activeBands) {
+    const pts = bandSeries(activeBands, "p50");
+    activeLastPoint = pts[pts.length - 1] || null;
+    series.push(stepLikeLine(pts, {
+      name: "активная",
+      lineStyle: { color: activeColor, width: 3 },
+      z: 3,
+      markPoint: activeLastPoint
+        ? {
+            silent: true,
+            symbol: "circle",
+            symbolSize: 1,
+            itemStyle: { opacity: 0 },
+            data: [{ coord: [activeLastPoint.t, activeLastPoint.v] }],
+            label: {
+              show: true,
+              formatter: activeLastPoint.v.toFixed(1),
+              color: activeColor,
+              fontWeight: 700,
+              fontSize: 14,
+              fontFamily: FONT_MONO,
+              position: "right",
+              distance: 8,
+            },
+          }
+        : undefined,
+    }));
   }
 
-  // Факт (история)
-  let factD = "";
-  let lastFactPt = null;
-  cvSeries.history.forEach((pt) => {
-    if (pt.v != null && pt.quality !== "MISSING") {
-      const px = getX(pt.t);
-      const py = getY(pt.v);
-      factD += factD === "" ? `M ${px} ${py}` : ` L ${px} ${py}`;
-      lastFactPt = { x: px, y: py };
-    }
+  const factData = factSeriesData(cvSeries.history);
+  series.push({
+    name: "факт",
+    type: "line",
+    data: factData,
+    symbol: (value, params) => (params.dataIndex === factData.length - 1 ? "circle" : "none"),
+    symbolSize: 6,
+    itemStyle: { color: TOKENS.ink },
+    lineStyle: { color: TOKENS.fact, width: 2.5 },
+    connectNulls: false,
+    z: 4,
+    markLine: { silent: true, symbol: "none", data: markLineData },
+    markArea: { silent: true, data: markAreaData },
   });
-  if (factD) {
-    svg += `<path d="${factD}" fill="none" stroke="${TOKENS.fact}" stroke-width="2.5" />`;
-  }
 
-  // Точка сейчас
-  if (lastFactPt) {
-    svg += `<circle cx="${lastFactPt.x}" cy="${lastFactPt.y}" r="5" fill="${TOKENS.ink}" />`;
-  }
+  const noForecast = state.recommendation && state.recommendation.status === "REFUSAL_DATA" && !active;
+  setOverlayText(container, noForecast ? ["Прогноз не строится", `нет достоверных данных по ${cvSeries.title.toLowerCase()}`] : null);
 
-  // Вертикальная линия NOW
-  svg += `<line x1="${xNow}" y1="${padT}" x2="${xNow}" y2="${padT + plotH}" stroke="${TOKENS.ink}" stroke-width="1.5" stroke-dasharray="4 3" />`;
-  svg += `<text x="${xNow}" y="${padT - 4}" fill="${TOKENS.ink}" font-size="11" font-weight="700" text-anchor="middle">СЕЙЧАС</text>`;
-
-  // Значения на +4ч справа
-  if (active && active.cv && active.cv[cvSeries.key]) {
-    const lastActive = active.cv[cvSeries.key].slice(-1)[0];
-    const yActEnd = getY(lastActive.p50);
-    svg += `<text x="${padL + plotW + 8}" y="${yActEnd + 4}" fill="${activeColor}" font-size="14" font-weight="700" class="mono">${lastActive.p50.toFixed(1)}</text>`;
-  }
-
-  // Синхронизированный курсор
-  if (handle.hoveredX != null && handle.hoveredX >= padL && handle.hoveredX <= padL + plotW) {
-    svg += `<line x1="${handle.hoveredX}" y1="${padT}" x2="${handle.hoveredX}" y2="${padT + plotH}" stroke="${TOKENS.ink}" stroke-width="1" stroke-dasharray="2 2" />`;
-  }
-
-  // Если отказ данных и нет прогноза
-  if (state.recommendation && state.recommendation.status === "REFUSAL_DATA" && !active) {
-    svg += `<text x="${xNow + (padL + plotW - xNow) / 2}" y="${padT + plotH / 2 - 10}" fill="${TOKENS.warn}" font-size="16" font-weight="700" text-anchor="middle">Прогноз не строится</text>`;
-    svg += `<text x="${xNow + (padL + plotW - xNow) / 2}" y="${padT + plotH / 2 + 14}" fill="${TOKENS.ink3}" font-size="13" text-anchor="middle">нет достоверных данных по ${cvSeries.title.toLowerCase()}</text>`;
-  }
-
-  svg += `</svg>`;
-  container.innerHTML = svg;
-
-  // Слушатель событий мыши для синхронного курсора
-  container.onmousemove = (e) => {
-    const rect = container.getBoundingClientRect();
-    const mouseX = e.clientX - rect.left;
-    handle.hoveredX = mouseX;
-    const hoveredMs = startMs + ((mouseX - padL) / plotW) * totalMs;
-    handle.hoveredTime = new Date(hoveredMs).toISOString();
-    updateTooltip(handle, e.clientX, e.clientY);
-    renderCharts(handle, handle.view);
-  };
-  container.onmouseleave = () => {
-    handle.hoveredX = null;
-    if (handle.tooltipEl) handle.tooltipEl.style.display = "none";
-    renderCharts(handle, handle.view);
-  };
+  chart.setOption(
+    {
+      backgroundColor: "transparent",
+      animation: false,
+      grid: { left: 60, right: 70, top: 28, bottom: 26 },
+      tooltip: {
+        trigger: "axis",
+        ...TOOLTIP_BASE,
+        formatter: (params) => cvTooltipFormatter(cvSeries, state, active, params),
+      },
+      xAxis: {
+        type: "time",
+        min: startMs,
+        max: endMs,
+        axisLine: { lineStyle: { color: TOKENS.grid } },
+        axisLabel: { color: TOKENS.ink3, fontFamily: FONT_MONO, fontSize: 12, hideOverlap: true, formatter: (v) => formatHm(v) },
+        splitLine: { show: false },
+      },
+      yAxis: {
+        type: "value",
+        min: yMin,
+        max: yMax,
+        splitNumber: 3,
+        axisLine: { show: false },
+        splitLine: { lineStyle: { color: TOKENS.grid } },
+        axisLabel: { color: TOKENS.ink3, fontFamily: FONT_MONO, fontSize: 13, formatter: (v) => v.toFixed(1) },
+      },
+      series,
+    },
+    true
+  );
 }
 
-function renderDpCompactSvg(container, dpSeries, state, view, startMs, endMs, nowMs, totalMs, activeColor, handle) {
-  const w = container.clientWidth || 800;
-  const h = container.clientHeight > 0 ? container.clientHeight : 56;
-  const padL = 60;
-  const padR = 60;
-  const padT = 8;
-  const padB = 8;
-  const plotW = Math.max(10, w - padL - padR);
-  const plotH = Math.max(10, h - padT - padB);
+function cvTooltipFormatter(cvSeries, state, active, params) {
+  const hoveredMs = Array.isArray(params) ? params[0].axisValue : params.axisValue;
+  const nowMs = new Date(state.clock.now).getTime();
+  const isFuture = hoveredMs >= nowMs;
+  let html = `<div style="font-weight:700;margin-bottom:6px;border-bottom:1px solid rgba(255,255,255,0.2);padding-bottom:3px;">Время: ${formatHm(hoveredMs)}</div>`;
 
-  const yMin = dpSeries.y_range ? dpSeries.y_range[0] : 100;
-  const yMax = dpSeries.y_range ? dpSeries.y_range[1] : 500;
+  if (!isFuture) {
+    const pt = closestByTime(cvSeries.history.map((p) => ({ t: new Date(p.t).getTime(), v: p.v })), hoveredMs);
+    html += `<div>Факт: <b>${pt && pt.v != null ? pt.v.toFixed(1) : "—"}</b> ${cvSeries.unit}</div>`;
+  } else {
+    const parts = [];
+    const holdPts = state.hold?.cv?.[cvSeries.key];
+    const holdPt = holdPts ? closestByTime(bandSeries(holdPts, "p50").map((p) => ({ t: p.t, v: p.v })), hoveredMs) : null;
+    if (holdPt && holdPt.v != null) parts.push(`Без изм.: ${holdPt.v.toFixed(1)}`);
 
-  const getX = (t) => padL + ((new Date(t).getTime() - startMs) / totalMs) * plotW;
-  const getY = (v) => padT + plotH - ((v - yMin) / (yMax - yMin)) * plotH;
-  const xNow = getX(state.clock.now);
-
-  let svg = `<svg width="100%" height="100%" viewBox="0 0 ${w} ${h}" preserveAspectRatio="none" style="display:block; overflow:hidden; max-width: 100%;">`;
-  svg += `<rect x="${xNow}" y="${padT}" width="${padL + plotW - xNow}" height="${plotH}" fill="#FFFFFF" fill-opacity="0.55" />`;
-
-  // Лимит T1
-  const yLim = getY(dpSeries.limit.value);
-  svg += `<line x1="${padL}" y1="${yLim}" x2="${padL + plotW}" y2="${yLim}" stroke="${TOKENS.limit}" stroke-width="1.5" stroke-dasharray="4 3" />`;
-
-  // Факт
-  let factD = "";
-  dpSeries.history.forEach((pt) => {
-    if (pt.v != null && pt.quality !== "MISSING") {
-      const px = getX(pt.t);
-      const py = getY(pt.v);
-      factD += factD === "" ? `M ${px} ${py}` : ` L ${px} ${py}`;
-    }
-  });
-  if (factD) svg += `<path d="${factD}" fill="none" stroke="${TOKENS.fact}" stroke-width="2" />`;
-
-  // Активная
-  const active = view.active;
-  if (active && active.cv && active.cv.dp) {
-    const actD = active.cv.dp.map((b, i) => `${i === 0 ? 'M' : 'L'} ${getX(b.t)} ${getY(b.p50)}`).join(' ');
-    svg += `<path d="${actD}" fill="none" stroke="${activeColor}" stroke-width="2.5" />`;
-  }
-
-  svg += `<line x1="${xNow}" y1="${padT}" x2="${xNow}" y2="${padT + plotH}" stroke="${TOKENS.ink}" stroke-width="1" stroke-dasharray="3 3" />`;
-  svg += `</svg>`;
-  container.innerHTML = svg;
-}
-
-function renderMvSvg(container, mvSeries, state, view, startMs, endMs, nowMs, totalMs, activeColor, handle) {
-  const w = container.clientWidth || 200;
-  const h = container.clientHeight > 0 ? container.clientHeight : 84;
-  const padL = 4;
-  const padR = 4;
-  const padT = 4;
-  const padB = 4;
-  const plotW = Math.max(10, w - padL - padR);
-  const plotH = Math.max(10, h - padT - padB);
-
-  // Определение диапазона Y вокруг значений
-  const vals = [];
-  mvSeries.sp_history.forEach((p) => p.v != null && vals.push(p.v));
-  mvSeries.pv_history.forEach((p) => p.v != null && vals.push(p.v));
-  let minV = Math.min(...vals, mvSeries.corridor.lo || 0);
-  let maxV = Math.max(...vals, mvSeries.corridor.hi || 100);
-  const span = Math.max(0.1, maxV - minV);
-  const yMin = minV - 0.1 * span;
-  const yMax = maxV + 0.1 * span;
-
-  const getX = (t) => padL + ((new Date(t).getTime() - startMs) / totalMs) * plotW;
-  const getY = (v) => padT + plotH - ((v - yMin) / (yMax - yMin)) * plotH;
-  const xNow = getX(state.clock.now);
-
-  let svg = `<svg width="100%" height="100%" viewBox="0 0 ${w} ${h}" preserveAspectRatio="none" style="display:block; overflow:hidden; max-width: 100%;">`;
-  svg += `<rect x="${xNow}" y="${padT}" width="${padL + plotW - xNow}" height="${plotH}" fill="#FFFFFF" fill-opacity="0.55" />`;
-
-  // Коридор допустимого шага на первом такте
-  if (mvSeries.corridor.max_step_per_tick && !mvSeries.frozen) {
-    const spNow = mvSeries.sp_history.slice(-1)[0]?.v || 0;
-    const cLo = Math.max(yMin, spNow - mvSeries.corridor.max_step_per_tick);
-    const cHi = Math.min(yMax, spNow + mvSeries.corridor.max_step_per_tick);
-    const cy = getY(cHi);
-    const ch = getY(cLo) - cy;
-    const cW = (10 * 60 * 1000 / totalMs) * plotW;
-    svg += `<rect x="${xNow}" y="${cy}" width="${cW}" height="${Math.max(2, ch)}" fill="${TOKENS.rec}" fill-opacity="0.16" />`;
-  }
-
-  // Линии T0/T1/warn
-  mvSeries.lines.forEach((l) => {
-    const ly = getY(l.value);
-    const color = l.kind === "warn" ? TOKENS.warn : TOKENS.limit;
-    svg += `<line x1="${padL}" y1="${ly}" x2="${padL + plotW}" y2="${ly}" stroke="${color}" stroke-width="1.2" stroke-dasharray="3 2" />`;
-  });
-
-  // PV история
-  let pvD = "";
-  mvSeries.pv_history.forEach((pt) => {
-    if (pt.v != null) {
-      const px = getX(pt.t);
-      const py = getY(pt.v);
-      pvD += pvD === "" ? `M ${px} ${py}` : ` L ${px} ${py}`;
-    }
-  });
-  if (pvD) svg += `<path d="${pvD}" fill="none" stroke="${TOKENS.hold}" stroke-width="1.2" />`;
-
-  // SP история (ступенчатая)
-  let spD = "";
-  for (let i = 0; i < mvSeries.sp_history.length; i++) {
-    const pt = mvSeries.sp_history[i];
-    if (pt.v != null) {
-      const px = getX(pt.t);
-      const py = getY(pt.v);
-      if (i === 0) {
-        spD = `M ${px} ${py}`;
-      } else {
-        const prevPy = getY(mvSeries.sp_history[i - 1].v);
-        spD += ` L ${px} ${prevPy} L ${px} ${py}`;
+    const actPts = active?.cv?.[cvSeries.key];
+    if (actPts) {
+      const actPt = closestByTime(actPts.map((b) => ({ t: new Date(b.t).getTime(), ...b })), hoveredMs);
+      if (actPt && actPt.p50 != null) {
+        let s = `Активная: <b>${actPt.p50.toFixed(1)}</b>`;
+        if (actPt.p10 != null && actPt.p90 != null) s += ` [${actPt.p10.toFixed(1)}–${actPt.p90.toFixed(1)}]`;
+        parts.push(s);
       }
     }
+    html += `<div>${parts.join(" · ") || "—"} ${cvSeries.unit}</div>`;
   }
-  if (spD) svg += `<path d="${spD}" fill="none" stroke="${TOKENS.ink}" stroke-width="2" />`;
-
-  // План активной траектории (ступенька)
-  const active = view.active;
-  if (active && active.mv_plan && active.mv_plan[mvSeries.sp]) {
-    const planPts = active.mv_plan[mvSeries.sp];
-    let planD = "";
-    for (let i = 0; i < planPts.length; i++) {
-      const pt = planPts[i];
-      const px = getX(pt.t);
-      const py = getY(pt.v);
-      if (i === 0) {
-        planD = `M ${px} ${py}`;
-      } else {
-        const prevPy = getY(planPts[i - 1].v);
-        planD += ` L ${px} ${prevPy} L ${px} ${py}`;
-      }
-    }
-    const color = mvSeries.frozen ? TOKENS.hold : activeColor;
-    const dash = mvSeries.frozen ? "stroke-dasharray='4 3'" : "";
-    svg += `<path d="${planD}" fill="none" stroke="${color}" stroke-width="2.5" ${dash} />`;
-  }
-
-  svg += `<line x1="${xNow}" y1="${padT}" x2="${xNow}" y2="${padT + plotH}" stroke="${TOKENS.ink}" stroke-width="1" stroke-dasharray="3 3" />`;
-  svg += `</svg>`;
-  container.innerHTML = svg;
+  return html;
 }
 
-function findClosestPoint(points, targetMs) {
+function closestByTime(points, targetMs) {
   if (!points || points.length === 0) return null;
   let best = points[0];
-  let bestDist = Math.abs(new Date(best.t).getTime() - targetMs);
+  let bestDist = Math.abs(best.t - targetMs);
   for (let i = 1; i < points.length; i++) {
-    const d = Math.abs(new Date(points[i].t).getTime() - targetMs);
+    const d = Math.abs(points[i].t - targetMs);
     if (d < bestDist) {
       best = points[i];
       bestDist = d;
@@ -510,51 +422,157 @@ function findClosestPoint(points, targetMs) {
   return best;
 }
 
-function updateTooltip(handle, clientX, clientY) {
-  const tip = handle.tooltipEl;
-  if (!tip || !handle.hoveredTime || !handle.view || !handle.view.state) return;
-
-  const state = handle.view.state;
-  const active = handle.view.active;
-  const hoveredMs = new Date(handle.hoveredTime).getTime();
-  const nowMs = new Date(state.clock.now).getTime();
-  const dt = new Date(hoveredMs);
-  const timeStr = `${String(dt.getUTCHours()).padStart(2, "0")}:${String(dt.getUTCMinutes()).padStart(2, "0")}`;
-  const isFuture = hoveredMs >= nowMs;
-
-  let html = `<div style="font-weight: 700; margin-bottom: 6px; border-bottom: 1px solid rgba(255,255,255,0.2); padding-bottom: 3px;">Время: ${timeStr}</div>`;
-
-  // CV секция
-  html += `<div style="display: flex; flex-direction: column; gap: 4px;">`;
-  state.series.cv.forEach((cv) => {
-    const factPt = findClosestPoint(cv.history, hoveredMs);
-    const holdPt = findClosestPoint(state.hold?.cv?.[cv.key], hoveredMs);
-    const actPt = findClosestPoint(active?.cv?.[cv.key], hoveredMs);
-
-    let valStr = "";
-    if (!isFuture && factPt && factPt.v != null) {
-      valStr = `Факт: <b>${factPt.v.toFixed(1)}</b> ${cv.unit}`;
-    } else {
-      const parts = [];
-      if (holdPt && holdPt.p50 != null) parts.push(`Без изм.: ${holdPt.p50.toFixed(1)}`);
-      if (actPt && actPt.p50 != null) {
-        let actStr = `Активная: <b>${actPt.p50.toFixed(1)}</b>`;
-        if (actPt.p10 != null && actPt.p90 != null) {
-          actStr += ` [${actPt.p10.toFixed(1)}–${actPt.p90.toFixed(1)}]`;
-        }
-        parts.push(actStr);
-      }
-      valStr = parts.join(" · ") + ` ${cv.unit}`;
-    }
-    html += `<div style="font-size: 12px;"><span style="color: #9AA0A6;">${cv.title}:</span> ${valStr}</div>`;
-  });
-  html += `</div>`;
-
-  tip.innerHTML = html;
-  tip.style.left = `${Math.min(window.innerWidth - 320, clientX + 16)}px`;
-  tip.style.top = `${Math.min(window.innerHeight - 200, clientY + 16)}px`;
-  tip.style.display = "block";
+function formatHm(ms) {
+  const dt = new Date(ms);
+  const hh = String(dt.getUTCHours()).padStart(2, "0");
+  const mm = String(dt.getUTCMinutes()).padStart(2, "0");
+  return `${hh}:${mm}`;
 }
+
+// -----------------------------------------------------------------------------
+// Компактный график ΔP: минималистичный, без осей — только лимит, факт, активная.
+// -----------------------------------------------------------------------------
+
+function renderDpChart(chart, dpSeries, ctx) {
+  const { view, startMs, endMs, nowMs, activeColor } = ctx;
+  const active = view.active;
+  const yMin = dpSeries.y_range ? dpSeries.y_range[0] : 100;
+  const yMax = dpSeries.y_range ? dpSeries.y_range[1] : 500;
+
+  const series = [
+    {
+      name: "факт",
+      type: "line",
+      data: factSeriesData(dpSeries.history),
+      symbol: "none",
+      lineStyle: { color: TOKENS.fact, width: 2 },
+      connectNulls: false,
+      markArea: {
+        silent: true,
+        data: [[{ xAxis: nowMs, itemStyle: { color: "#FFFFFF", opacity: 0.55 } }, { xAxis: endMs }]],
+      },
+      markLine: {
+        silent: true,
+        symbol: "none",
+        data: [
+          { yAxis: dpSeries.limit.value, lineStyle: { color: TOKENS.limit, width: 1.5, type: "dashed" } },
+          { xAxis: nowMs, lineStyle: { color: TOKENS.ink, width: 1, type: [3, 3] } },
+        ],
+      },
+    },
+  ];
+
+  if (active && active.cv && active.cv.dp) {
+    series.push(stepLikeLine(bandSeries(active.cv.dp, "p50"), {
+      name: "активная",
+      lineStyle: { color: activeColor, width: 2.5 },
+    }));
+  }
+
+  chart.setOption(
+    {
+      backgroundColor: "transparent",
+      animation: false,
+      grid: { left: 60, right: 60, top: 8, bottom: 8 },
+      tooltip: { trigger: "axis", ...TOOLTIP_BASE, valueFormatter: (v) => (v == null ? "—" : v.toFixed(1)) },
+      xAxis: { type: "time", min: startMs, max: endMs, show: false },
+      yAxis: { type: "value", min: yMin, max: yMax, show: false },
+      series,
+    },
+    true
+  );
+}
+
+// -----------------------------------------------------------------------------
+// Мини-график MV: ступенчатые SP/PV, коридор шага, линии T0/T1/warn.
+// -----------------------------------------------------------------------------
+
+function renderMvChart(chart, mvSeries, ctx) {
+  const { view, startMs, endMs, nowMs, activeColor } = ctx;
+  const active = view.active;
+
+  const vals = [];
+  mvSeries.sp_history.forEach((p) => p.v != null && vals.push(p.v));
+  mvSeries.pv_history.forEach((p) => p.v != null && vals.push(p.v));
+  let minV = Math.min(...vals, mvSeries.corridor.lo ?? 0);
+  let maxV = Math.max(...vals, mvSeries.corridor.hi ?? 100);
+  const span = Math.max(0.1, maxV - minV);
+  const yMin = minV - 0.1 * span;
+  const yMax = maxV + 0.1 * span;
+
+  const markAreaData = [[{ xAxis: nowMs, itemStyle: { color: "#FFFFFF", opacity: 0.55 } }, { xAxis: endMs }]];
+  if (mvSeries.corridor.max_step_per_tick && !mvSeries.frozen) {
+    const spNow = mvSeries.sp_history.slice(-1)[0]?.v || 0;
+    const cLo = Math.max(yMin, spNow - mvSeries.corridor.max_step_per_tick);
+    const cHi = Math.min(yMax, spNow + mvSeries.corridor.max_step_per_tick);
+    markAreaData.push([
+      { xAxis: nowMs, yAxis: cLo, itemStyle: { color: TOKENS.rec, opacity: 0.16 } },
+      { xAxis: nowMs + 10 * 60 * 1000, yAxis: cHi },
+    ]);
+  }
+
+  const markLineData = mvSeries.lines.map((l) => ({
+    yAxis: l.value,
+    lineStyle: { color: l.kind === "warn" ? TOKENS.warn : TOKENS.limit, width: 1.2, type: [3, 2] },
+  }));
+
+  const series = [
+    {
+      name: "pv",
+      type: "line",
+      data: mvSeries.pv_history.filter((p) => p.v != null).map((p) => [new Date(p.t).getTime(), p.v]),
+      symbol: "none",
+      lineStyle: { color: TOKENS.hold, width: 1.2 },
+      markArea: { silent: true, data: markAreaData },
+      markLine: { silent: true, symbol: "none", data: markLineData },
+    },
+    {
+      name: "sp",
+      type: "line",
+      step: "end",
+      data: mvSeries.sp_history.filter((p) => p.v != null).map((p) => [new Date(p.t).getTime(), p.v]),
+      symbol: "none",
+      lineStyle: { color: TOKENS.ink, width: 2 },
+    },
+  ];
+
+  const planPts = active && active.mv_plan && active.mv_plan[mvSeries.sp] ? active.mv_plan[mvSeries.sp] : null;
+  if (planPts) {
+    series.push({
+      name: "план",
+      type: "line",
+      step: "end",
+      data: planPts.map((p) => [new Date(p.t).getTime(), p.v]),
+      symbol: "none",
+      lineStyle: {
+        color: mvSeries.frozen ? TOKENS.hold : activeColor,
+        width: 2.5,
+        type: mvSeries.frozen ? "dashed" : "solid",
+      },
+    });
+  }
+
+  chart.setOption(
+    {
+      backgroundColor: "transparent",
+      animation: false,
+      grid: { left: 4, right: 4, top: 4, bottom: 4 },
+      tooltip: {
+        trigger: "axis",
+        ...TOOLTIP_BASE,
+        valueFormatter: (v) => (v == null ? "—" : v.toFixed(mvSeries.decimals ?? 1)),
+      },
+      xAxis: { type: "time", min: startMs, max: endMs, show: false },
+      yAxis: { type: "value", min: yMin, max: yMax, show: false },
+      series,
+    },
+    true
+  );
+}
+
+// -----------------------------------------------------------------------------
+// Парето-фронт (D5, D10, D14): scatter-график на ECharts.
+// -----------------------------------------------------------------------------
 
 /**
  * Память по каждому DOM-контейнеру графика: отслеживаем, менял ли оператор ось X
@@ -695,22 +713,11 @@ export function renderParetoChart(container, paretoData, { axisX, axisY, onPoint
   const specX = objectives.find((o) => o.key === keyX) || { key: keyX, label: keyX, unit: "", sense: "min" };
   const specY = objectives.find((o) => o.key === keyY) || { key: keyY, label: keyY, unit: "", sense: "max" };
 
-  let chart = window.echarts.getInstanceByDom(container);
-  if (chart) {
-    // If container innerHTML was overwritten with text, canvas is missing from DOM
-    const hasCanvas = container.querySelector("canvas");
-    if (!hasCanvas) {
-      window.echarts.dispose(container);
-      chart = null;
-    }
-  }
-
-  if (!chart) {
-    container.innerHTML = "";
-    chart = window.echarts.init(container);
-  } else {
+  const chart = getOrCreateChart(container);
+  if (window.echarts.getInstanceByDom(container) === chart && container.querySelector("canvas")) {
     chart.resize();
   }
+  chart.group = "pareto";
 
   // Разделение точек ровно на 5 категорий — цвет/символ берутся из PARETO_SERIES_STYLE,
   // тем же значением, что затем задаётся на уровне серии (фикс §1).
@@ -799,7 +806,7 @@ export function renderParetoChart(container, paretoData, { axisX, axisY, onPoint
       symbolSize: PARETO_SERIES_STYLE.pareto.symbolSize,
       itemStyle: { color: PARETO_SERIES_STYLE.pareto.color },
       z: PARETO_SERIES_STYLE.pareto.z,
-      markLine: markLineData.length > 0 ? { silent: true, symbol: "none", data: markLineData } : undefined,
+      markLine: { silent: true, symbol: "none", data: markLineData },
     },
     {
       name: PARETO_SERIES_STYLE.dominated.legend,
@@ -841,12 +848,13 @@ export function renderParetoChart(container, paretoData, { axisX, axisY, onPoint
 
   const option = {
     backgroundColor: "transparent",
+    animation: false,
     title: {
       show: !!axisHint,
       text: axisHint || "",
       left: "center",
       top: 4,
-      textStyle: { color: TOKENS.warn, fontSize: 12, fontWeight: 600, fontFamily: "'IBM Plex Sans', sans-serif" },
+      textStyle: { color: TOKENS.warn, fontSize: 12, fontWeight: 600, fontFamily: FONT_SANS },
     },
     grid: {
       left: "80px",
@@ -864,13 +872,12 @@ export function renderParetoChart(container, paretoData, { axisX, axisY, onPoint
         PARETO_SERIES_STYLE.recommendation.legend,
       ],
       top: axisHint ? 28 : 10,
-      textStyle: { color: "#16181A", fontSize: 12, fontFamily: "'IBM Plex Sans', sans-serif" },
+      textStyle: { color: "#16181A", fontSize: 12, fontFamily: FONT_SANS },
     },
     tooltip: {
       trigger: "item",
-      backgroundColor: "rgba(22, 24, 26, 0.95)",
-      borderColor: "#3F4448",
-      textStyle: { color: "#FFFFFF", fontFamily: "'IBM Plex Sans', monospace", fontSize: 13 },
+      ...TOOLTIP_BASE,
+      textStyle: { color: "#FFFFFF", fontFamily: FONT_SANS, fontSize: 13 },
       formatter: (params) => {
         const p = params.data?.point;
         if (!p) return "";
@@ -902,22 +909,22 @@ export function renderParetoChart(container, paretoData, { axisX, axisY, onPoint
       name: `${specX.label} (${specX.unit})`,
       nameLocation: "middle",
       nameGap: 34,
-      nameTextStyle: { color: "#4A4E53", fontSize: 13, fontWeight: 600, fontFamily: "'IBM Plex Sans', sans-serif" },
+      nameTextStyle: { color: "#4A4E53", fontSize: 13, fontWeight: 600, fontFamily: FONT_SANS },
       type: "value",
       splitLine: { lineStyle: { color: "#C9CAC6", type: "dashed" } },
       axisLine: { lineStyle: { color: "#B9BBB7" } },
-      axisLabel: { color: "#4A4E53", fontFamily: "'IBM Plex Mono', monospace" },
+      axisLabel: { color: "#4A4E53", fontFamily: FONT_MONO },
       scale: true,
     },
     yAxis: {
       name: `${specY.label} (${specY.unit})`,
       nameLocation: "middle",
       nameGap: 55,
-      nameTextStyle: { color: "#4A4E53", fontSize: 13, fontWeight: 600, fontFamily: "'IBM Plex Sans', sans-serif" },
+      nameTextStyle: { color: "#4A4E53", fontSize: 13, fontWeight: 600, fontFamily: FONT_SANS },
       type: "value",
       splitLine: { lineStyle: { color: "#C9CAC6", type: "dashed" } },
       axisLine: { lineStyle: { color: "#B9BBB7" } },
-      axisLabel: { color: "#4A4E53", fontFamily: "'IBM Plex Mono', monospace" },
+      axisLabel: { color: "#4A4E53", fontFamily: FONT_MONO },
       // Фикс §3: один выброс (напр. net_margin на 1-2 порядка больше кластера) не должен
       // растягивать шкалу — обрезаем видимый диапазон до [Q1-1.5*IQR, Q3+1.5*IQR], точка
       // остаётся в данных (и в тултипе целиком), просто уезжает за пределы видимой области.
@@ -928,7 +935,11 @@ export function renderParetoChart(container, paretoData, { axisX, axisY, onPoint
     series,
   };
 
-  chart.setOption(option, true);
+  // merge-режим (а не notMerge): вкладка Парето перерисовывается на каждый опрос
+  // состояния (initParetoTab вызывается из refresh() на каждый такт), а состав серий
+  // стабилен (всегда ровно 5 категорий в одном порядке) — полная пересборка тут не нужна
+  // и вызывала видимую перерисовку статичных элементов (красные линии лимитов) каждый такт.
+  chart.setOption(option);
 
   chart.off("click");
   chart.on("click", (params) => {

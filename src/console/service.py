@@ -6,7 +6,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta
+from datetime import datetime
 import math
 from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
@@ -524,7 +524,11 @@ def build_state(session: ConsoleSession) -> ConsoleState:
                 auto_resume_condition=cond,
             )
 
-        valid_until_dt = session.now + timedelta(minutes=30)
+        # ВАЖНО: раньше здесь стояло +30 минут — то есть карточка обещала оператору полчаса на
+        # решение, хотя commit() в реальности отклоняет эту же рекомендацию уже на следующем такте
+        # (session.tick_delta, по умолчанию 10 модельных минут = 1 такт), см. STALE_RECOMMENDATION
+        # выше. valid_until теперь честно отражает момент фактической инвалидации.
+        valid_until_dt = session.now + session.tick_delta
         rec_dto = Recommendation(
             cycle_id=session.last_cycle_id or f"cycle_{session.tick}",
             status=status,
@@ -1231,8 +1235,13 @@ def commit(session: ConsoleSession, req: CommitRequest) -> CommitResult:
     3. Применение в session.apply(...)
     4. Запись в ленту и журнал решений.
     """
-    # 1. Проверка устаревания рекомендации
-    if req.cycle_id is not None and req.source != "operator_edit":
+    # 1. Проверка устаревания рекомендации.
+    # Раньше правки оператора (source == "operator_edit") были исключены из этой проверки, из-за
+    # чего коммит с отредактированным значением всегда проходил, даже против уже сменившегося
+    # цикла, — в отличие от «Применить рекомендацию»/альтернативы, которые в этой ситуации строго
+    # отклонялись. Проверка выполняется только когда cycle_id вообще передан (ручная вкладка шлёт
+    # cycle_id=None и намеренно остаётся вне этой проверки — она не привязана к циклу рекомендации).
+    if req.cycle_id is not None:
         if session.last_cycle_id and req.cycle_id != session.last_cycle_id:
             raise HTTPException(
                 status_code=409,

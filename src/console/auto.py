@@ -6,7 +6,7 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple
+from typing import TYPE_CHECKING, Dict, List, Optional, Tuple
 
 from src.agents.contracts import AutomationLevel, DecisionStatus
 from src.agents.policy import AutomationThresholds
@@ -23,6 +23,7 @@ from src.console.contracts import (
     LastAutoExit,
     ModeInfo,
     PreviewRequest,
+    PreviewResult,
     SP,
 )
 
@@ -339,34 +340,108 @@ def auto_step(session: ConsoleSession) -> List[FeedItem]:
             session.feed.appendleft(shield_item)
             new_items.append(shield_item)
     else:
-        # Ядро или коридор отклонили ход — не применять и выйти в ADVISORY
-        shield_item = FeedItem(
-            id=f"auto:reject:{session.tick}",
-            t=now_hm,
-            kind="shield",
-            text=f"Ядро отклонило шаг автомата: {prev_res.blocking_reason}",
-            source="kernel",
-        )
-        session.feed.appendleft(shield_item)
-        new_items.append(shield_item)
+        # Ядро отклонило полный (урезанный по коридору) шаг. Раньше автомат сразу сдавался и
+        # принудительно уходил в СОВЕТ с блокирующим баннером на каждый такой отказ — по решению
+        # оператора (2026-09-20) автомат теперь сам подбирает уменьшенный, но безопасный шаг в
+        # ТОМ ЖЕ направлении (бисекция масштаба clipped_delta от 0 до 1, каждый кандидат — через
+        # тот же forecast.preview(), что и раньше) и уходит в СОВЕТ только если безопасного хода
+        # вообще не существует — не проходит даже удержание текущего режима (масштаб 0). Это
+        # по-прежнему последняя линия защиты, просто больше не первая.
+        def _preview_scaled(scale: float) -> Tuple[Dict[str, float], Dict[str, float], PreviewResult]:
+            scaled_delta = {sp: round(v * scale, 4) for sp, v in clipped_delta.items()}
+            scaled_target = {
+                sp: round(session.u_current.get(sp, 0.0) + scaled_delta.get(sp, 0.0), 3)
+                for sp in session.u_current.keys()
+            }
+            req = PreviewRequest(session_id=session.session_id, u_target=scaled_target)
+            return scaled_delta, scaled_target, forecast.preview(session, req)
 
-        # Автовыход KERNEL_REJECT
-        now_iso = session.now.strftime("%Y-%m-%dT%H:%M:%SZ")
-        session.mode = "ADVISORY"
-        session.auto_since = None
-        session.last_auto_exit = LastAutoExit(
-            at=now_iso,
-            reason_code="KERNEL_REJECT",
-            text=f"Шаг отклонён ядром безопасности: {prev_res.blocking_reason}",
-        )
-        session.banner = Banner(
-            id=f"banner_reject_{session.tick}",
-            kind="AUTO_EXIT",
-            title=f"АВТОМАТ ОТКЛЮЧЁН в {now_hm}",
-            text=f"Шаг отклонён ядром безопасности: {prev_res.blocking_reason}",
-            at=now_iso,
-            ack_required=True,
-        )
+        hold_delta, hold_target, hold_res = _preview_scaled(0.0)
+
+        if not hold_res.can_commit:
+            # Даже удержание текущего режима не проходит ядро — самостоятельно предпринять
+            # нечего, это и есть настоящая последняя линия защиты.
+            shield_item = FeedItem(
+                id=f"auto:reject:{session.tick}",
+                t=now_hm,
+                kind="shield",
+                text=f"Ядро отклонило шаг автомата: {prev_res.blocking_reason}",
+                source="kernel",
+            )
+            session.feed.appendleft(shield_item)
+            new_items.append(shield_item)
+
+            now_iso = session.now.strftime("%Y-%m-%dT%H:%M:%SZ")
+            session.mode = "ADVISORY"
+            session.auto_since = None
+            session.last_auto_exit = LastAutoExit(
+                at=now_iso,
+                reason_code="KERNEL_REJECT",
+                text=f"Безопасного хода не найдено даже при удержании режима: {hold_res.blocking_reason}",
+            )
+            session.banner = Banner(
+                id=f"banner_reject_{session.tick}",
+                kind="AUTO_EXIT",
+                title=f"АВТОМАТ ОТКЛЮЧЁН в {now_hm}",
+                text=f"Безопасного хода не найдено даже при удержании режима: {hold_res.blocking_reason}",
+                at=now_iso,
+                ack_required=True,
+            )
+        else:
+            # Бисекция: ищем наибольший масштаб в [0, 1], ещё проходящий ядро. hi=1.0 уже
+            # отклонён (prev_res), lo=0.0 уже проверен и безопасен (hold_res).
+            lo, lo_delta, lo_target = 0.0, hold_delta, hold_target
+            hi = 1.0
+            for _ in range(6):
+                mid = (lo + hi) / 2
+                mid_delta, mid_target, mid_res = _preview_scaled(mid)
+                if mid_res.can_commit:
+                    lo, lo_delta, lo_target = mid, mid_delta, mid_target
+                else:
+                    hi = mid
+
+            if lo <= 1e-3:
+                # Нашли только "не двигаться" — по сути то же, что и удержание.
+                info_item = FeedItem(
+                    id=f"auto:selfheal_hold:{session.tick}",
+                    t=now_hm,
+                    kind="info",
+                    text=f"Автомат удержал текущий режим: предложенный шаг отклонён ядром ({prev_res.blocking_reason})",
+                    source="auto",
+                )
+                session.feed.appendleft(info_item)
+                new_items.append(info_item)
+            else:
+                session.apply(lo_target)
+
+                applied_strs = [
+                    f"{sp.replace('_SP', '')} {session.u_current[sp] - lo_delta[sp]:.1f} → {session.u_current[sp]:.1f}"
+                    for sp in lo_delta
+                    if abs(lo_delta[sp]) > 1e-4
+                ]
+                applied_text = ", ".join(applied_strs) or "уставки подтверждены"
+                ok_item = FeedItem(
+                    id=f"auto:apply:{session.tick}",
+                    t=now_hm,
+                    kind="ok",
+                    text=f"Автомат: {applied_text}",
+                    source="auto",
+                )
+                session.feed.appendleft(ok_item)
+                new_items.append(ok_item)
+
+                shield_item = FeedItem(
+                    id=f"auto:selfheal:{session.tick}",
+                    t=now_hm,
+                    kind="shield",
+                    text=(
+                        f"Автомат сам сократил шаг до {lo * 100:.0f}% от рекомендованного, "
+                        f"чтобы не нарушить ядро безопасности: {prev_res.blocking_reason}"
+                    ),
+                    source="kernel",
+                )
+                session.feed.appendleft(shield_item)
+                new_items.append(shield_item)
 
     return new_items
 

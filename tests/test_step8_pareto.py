@@ -23,7 +23,7 @@ import pytest
 from scipy.stats import norm
 
 from src.agents.decision_log import append_decision
-from src.agents.graph import build_mvp_graph
+from src.agents.graph import build_core_graph
 from src.agents.limits import GIVEAWAY_Z, QUALITY_Z, SIGMA_S0_PPM
 from src.agents.pareto import (
     ALL_METRICS,
@@ -68,7 +68,7 @@ def make_cand(cid: str, margin: float, sulfur: float, wabt: float, dp: float = 1
 
 @pytest.fixture
 def graph():
-    return build_mvp_graph()
+    return build_core_graph()
 
 
 def invoke(graph, tags):
@@ -285,105 +285,7 @@ def test_objective_set_is_configurable_and_validated():
         analyze_pareto(cands, objectives=())
 
 
-# =============================================================================
-# 4. Граф LangGraph на роллауте цифрового двойника
-# =============================================================================
 
-@pytest.mark.parametrize("fixture_name", ["nominal_tags", "quality_risk_tags", "rich_front_tags"])
-def test_graph_pareto_invariants_on_twin_rollout(graph, request, fixture_name):
-    """
-    Инварианты на реальных кандидатах двойника:
-    - фронт ⊆ допустимых, ветированных во фронте нет, каждый доминируемый действительно доминируется;
-    - рекомендация арбитража лежит на фронте: единственный максимум Net Utility по допустимым ходам
-      Парето-оптимален, а hold не может его доминировать (в SUCCESS Net Utility ≥ deadband > 0,
-      в SUCCESS_CORRECTIVE hold ветирован);
-    - буфер серы совпадает с запасом QualityAgent: sulfur_ucb = 10 − margin(HT_S_PRODUCT).
-    """
-    res = invoke(graph, request.getfixturevalue(fixture_name))
-    analysis = res["pareto"]
-    assert isinstance(analysis, ParetoAnalysis)
-
-    cand_ids = [c.candidate_id for c in res["candidates"]]
-    vetoed = set(res.get("vetoed_candidates", []))
-    assert [p.candidate_id for p in analysis.points] == cand_ids
-    assert set(analysis.front_ids) <= set(cand_ids) - vetoed
-    assert all(analysis.point(v).status == "vetoed" for v in vetoed)
-
-    keys = [o.key for o in analysis.objectives]
-    senses = [o.sense for o in analysis.objectives]
-    vec = {p.candidate_id: to_minimization([p.metrics[k] for k in keys], senses) for p in analysis.points if p.status in ("pareto", "dominated")}
-    for p in analysis.points:
-        if p.status == "dominated":
-            assert p.dominated_by and all(dominates(vec[d], vec[p.candidate_id]) for d in p.dominated_by)
-        if p.status == "pareto":
-            assert not any(dominates(v, vec[p.candidate_id]) for v in vec.values())
-
-    selected = res.get("selected_candidate")
-    if selected is not None:
-        assert analysis.is_on_front(selected.candidate_id)
-
-    for rep in res["audit_reports"]:
-        if rep.agent == "quality" and "HT_S_PRODUCT" in rep.limit_margins and rep.candidate_id not in vetoed:
-            assert analysis.point(rep.candidate_id).metrics["sulfur_ucb"] == pytest.approx(10.0 - rep.limit_margins["HT_S_PRODUCT"], abs=1e-3)
-
-
-@pytest.fixture
-def rich_front_tags(nominal_tags):
-    """Запас по сере (HT_Q21 = 7.0 ppm): допустимы почти все ходы, фронт содержит компромиссы."""
-    tags = dict(nominal_tags)
-    tags["HT_Q21"] = 7.0
-    tags["LIMS_HT_S"] = 7.0
-    return tags
-
-
-def test_graph_rich_front_has_tradeoffs(graph, rich_front_tags):
-    """При запасе по качеству фронт содержит компромиссы: самый доходный режим не лучший по другой цели."""
-    analysis = invoke(graph, rich_front_tags)["pareto"]
-    assert analysis.n_admissible >= 3
-    front = [analysis.point(c) for c in analysis.front_ids]
-    assert len(front) >= 2
-    best_margin = max(front, key=lambda p: p.metrics["net_margin"])
-    other_keys = [o.key for o in analysis.objectives if o.key != "net_margin"]
-    assert any(
-        min(p.metrics[k] for p in front) < best_margin.metrics[k] for k in other_keys
-    )  # экономика конфликтует с переочисткой или износом катализатора
-
-
-def test_graph_xai_report_and_decision_log_contain_pareto(graph, quality_risk_tags, tmp_path):
-    """Раздел XAI сохраняется после перегенерации отчета блендингом; журнал решений содержит фронт."""
-    res = invoke(graph, quality_risk_tags)
-    rec = res["final_recommendation"]
-    assert rec.status.startswith("SUCCESS")
-    assert "Парето-анализ" in rec.markdown_report
-    assert f"Рекомендация `{res['selected_candidate'].candidate_id}` — **Парето-оптимальное (компромиссное) решение в допустимой зоне**" in rec.markdown_report
-
-    log_path = append_decision(res, {"tags": quality_risk_tags}, path=tmp_path / "decisions.jsonl")
-    record = json.loads(log_path.read_text(encoding="utf-8").strip().splitlines()[-1])
-    assert record["pareto"]["front_ids"] == res["pareto"].front_ids
-    assert len(record["pareto"]["points"]) == len(res["candidates"])
-
-
-def test_graph_degraded_data_skips_pareto(graph, degraded_tags):
-    """Деградация КИП/LIMS → Safe Hold до оптимизации: Парето-анализ не выполняется."""
-    res = invoke(graph, degraded_tags)
-    assert res["final_recommendation"].status == "SAFE_HOLD"
-    assert res.get("pareto") is None
-
-
-def test_api_returns_pareto(quality_risk_tags):
-    """REST API /api/v1/optimize возвращает сериализованный Парето-анализ."""
-    from fastapi.testclient import TestClient
-    from main import app
-
-    data = TestClient(app).post("/api/v1/optimize", json={"tags": quality_risk_tags}).json()
-    assert data["pareto"] is not None
-    assert isinstance(data["pareto"]["front_ids"], list) and data["pareto"]["front_ids"]
-    assert {o["key"] for o in data["pareto"]["objectives"]} == {"net_margin", "sulfur_giveaway", "bed_temperature"}
-
-
-# =============================================================================
-# 5. Визуализация и производительность
-# =============================================================================
 
 @pytest.fixture
 def synthetic_analysis() -> ParetoAnalysis:

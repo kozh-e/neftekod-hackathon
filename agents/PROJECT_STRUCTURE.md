@@ -1,11 +1,13 @@
 # PROJECT_STRUCTURE
 
+> **Последнее обновление: сентябрь 2026.** ADR-26 завершён — `build_mvp_graph()` удалён, единственный граф — `core_v3`. Удалены: `optimization_stub.py`, `implementation_plan_v2.md`, `console_tz/mockups/`, `baseline_kpis.py`, `test_step1_mvp.py`, `supervisor/tools.py`. Все тесты на `build_core_graph()`.
+
 Repository directory structure and file map for AI agents and engineering teams.
 
 ## Root Files
 - AGENTS.md: System prompt, expert analyst role, domain rules, and workflow tasks.
 - README.md: Overview of the MES/APC project, service endpoints, and launch instructions.
-- main.py: FastAPI application with endpoints `/api/v1/optimize` (with session support), `/api/v1/health`, and the operator console router/static mount (`/api/console`, `/console`).
+- main.py: FastAPI приложение. `graph_mode` в payload принимается, но все режимы направляются в `build_core_graph()` (legacy/shadow удалены).
 - Dockerfile: Container build based on `python:3.12-slim`.
 - docker-compose.yml: Orchestration for the API/console service and automated test services. The Streamlit UI (`streamlit_app.py`, `src/ui/app.py`) was removed; the operator console at `/console` is now the sole web UI (see `agents/console_tz/`).
 - requirements.txt: Python package dependencies.
@@ -27,10 +29,10 @@ Main source code for the MES/APC system.
   - `limits.py`: Technological boundaries with source attribution (`NORM` vs `ASSUMPTION`) and historical violation frequencies.
   - `constraints.py`: Trajectory constraint assessment (`assess_limit()`) and statistical uncertainty offsets (`stat_offset()`).
   - `economics.py`: Incremental steady-state economic margin model relative to hold ($\Delta \text{Margin}_{\text{hold}}$), gross and net hourly operating margin calculations, and physical fuel gas consumption ($LHV$, $\text{MW}\cdot\text{h}$, $\text{nm}^3/\text{h}$).
-  - `optimization.py`: Dynamic rollout optimization agent (`RolloutOptimizationAgent`) and graph node with runtime economic pricing injection.
+  - `optimization.py`: Dynamic rollout optimization agent (`RolloutOptimizationAgent`) and graph node with runtime economic pricing injection. Наследие MVP-графа (`RolloutOptimizationAgent`); в `build_core_graph()` не вызывается. Используется в `test_step7_rollout.py`, `test_step7_audit_arbitration.py`. Подлежит удалению вместе с этими тестами.
   - `tanks.py`: Component storage tank models with ideal mixing and stock tracking.
   - `decision_log.py`: Structured JSONL decision audit logger for operational tracking.
-  - `auditors.py`: Parallel safety and quality auditors. `ReliabilityAgent` monitors equipment limits (`AVT_T55`, `HT_P8`, `AVT_P52`, `AVT_F31`, `HT_GOR`, `FEED_TO_AVT`). `QualityAgent` performs statistical checks on sulfur ($\hat S + z \sigma_S \le 10.0$ ppm), flash, T95, and downstream recipe feasibility.
+  - `auditors.py`: Parallel safety and quality auditors. `ReliabilityAgent` monitors equipment limits (`AVT_T55`, `HT_P8`, `AVT_P52`, `AVT_F31`, `HT_GOR`, `FEED_TO_AVT`). `QualityAgent` performs statistical checks on sulfur ($\hat S + z \sigma_S \le 10.0$ ppm), flash, T95, and downstream recipe feasibility. Наследие MVP-графа. Заменён `reliability.py` и `quality.py` в `core_v3`. Используется в `test_step7_audit_arbitration.py`. Подлежит удалению.
   - `reliability.py`: Dedicated ReliabilityAgent implementation (§5.4) verifying T1 equipment constraints (`FURNACE.COT_MAX`, `RX.DP_MAX`, etc.), furnace preconditions (`FURNACE.F31_MIN`, `COL.P52_MAX`), COT policy bands, and local candidate repair.
   - `quality.py`: Dedicated QualityAgent implementation (§5.5) verifying T2 quality constraints (`GODT.S_MAX`, `PRODUCT.FLASH_MIN`, etc.), chance constraints with measurement/prediction uncertainty, and stabilizing furnace move integration.
   - `furnace_ensemble.py`: Monte Carlo ensemble of 40 scenarios (seed=42) for robust stochastic evaluation of furnace COT and F31 transitions under uncertainty.
@@ -46,8 +48,7 @@ Main source code for the MES/APC system.
   - `arbitration.py`: Two-stage lexicographic arbitration engine (`arbitrate_lexicographic`, `decide`) strictly enforcing Safety T0/T1 > Quality T2 > Supply/Ops T3 > Economics, generating recovery plans and Pareto-filtered trade-offs.
   - `recovery.py`: Multi-step incident recovery planner (`RecoveryPlanner`, `RecoveryPlan`) generating monotone safe trajectories when hold is in violation.
   - `decision_store.py`: SQLite and JSONL persistence backend (`DecisionStore`, `save_decision_trace`) for immutable execution traces.
-  - `graph.py`: Deterministic multi-agent graph v3 (`build_core_graph`, `get_graph`) under Strangler pattern (ADR-26) supporting `core_v3`, `legacy`, and `shadow` execution modes.
-  - `safe_hold.py`: Safe hold state handler (sets $\Delta \mathbf{u} = \mathbf{0}$, returns formal dispatch explanation).
+  - `graph.py`: «Детерминированный граф переговоров v3 (`build_core_graph`, `get_graph`). `build_mvp_graph()` удалён (ADR-26 завершён). Единственный режим исполнения — `core_v3`.»
   - `blending.py`: 3-component tank blending LP optimizer with inventory constraints, `build_blend_problem()`, `solve_elastic()` hierarchical slack relaxation (`INFEASIBLE_ELASTIC`), `godt_prices()` finite-difference shadow pricing, `certify_blend()`, and backward-compatible `solve_recipe()`.
   - `lims.py`: LIMS delay compensator (retrospective error, exponential bias decay $T_{1/2} = 12$ h, first-order filter $\tau = 30$ min, defaults aligned with ADR-12 constants $z = 2$, $\sigma_{S0} = 0.83$ ppm) and `lims_age_from_state()` helper.
   - `data_guard.py`: Telemetry data validation (stuck sensors, missing values, critical tag clamping, confidence scoring, `assess_data`, degradation ladder).
@@ -80,7 +81,6 @@ Main source code for the MES/APC system.
   - `cassettes.py`: Deterministic cassette storage (`CassetteStore`), request fingerprinting (`calculate_fingerprint` via SHA-256), cassette persistence in `data/llm_cassettes/`.
   - `llm_client.py`: OpenAI-compatible client (`ReplayingOpenAIClient`) supporting `REPLAY_STRICT`, `LIVE_RECORD`, `OFF` modes, Qwen 27B/32B, and robust regex JSON extraction (`extract_json_payload`).
   - `evidence.py`: Deterministic evidence pack generation (`EvidencePackage`, `EvidenceRef`, `build_evidence_package`), canonical hashing, token bounding (< 4–5k tokens).
-  - `tools.py`: Read-only inspection tools over `DecisionStore` snapshot (`get_calibration_history`, `get_constraint_activity`, `get_cycle_trace`, `get_lims_vs_pak`, `get_open_findings`, `get_policy`, `list_decisions`, `explain_constraint`).
   - `prompts/`: Versioned Russian system prompts for roles (`diagnostics.v1.md`, `policy.v1.md`, `briefing.v1.md`, `operator_qa.v1.md`).
   - `agents.py`: Specialized role agents (`DiagnosticsAgent`, `PolicyAdvisor`, `BriefingAgent`, `OperatorQAAgent`) and structured Pydantic v2 schemas (`DiagnosticReport`, `PolicyProposal`, `ShiftBriefing`, `OperatorAnswer`).
   - `validation.py`: Verifiers for outputs (`GroundingChecker` with 1% numeric tolerance, `PolicyValidator` enforcing `POLICY_WHITELIST` tighten-only rule and blocking prompt-injections).
@@ -141,3 +141,4 @@ Instructions, prompts, domain knowledge, and architectural plans for AI agents.
 - `ASSUMPTIONS.md`: Comprehensive engineering register of all model and equipment assumptions (ASSUMPTION provenance), rationale, and boundary rule mapping.
 - `implementation_plan_v2.md`: Historical v2 architectural plan, empirical audit, and low-level task specifications (current decisions: `ASSUMPTIONS.md`).
 - `PROJECT_STRUCTURE.md`: This directory map.
+

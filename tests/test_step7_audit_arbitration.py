@@ -22,7 +22,7 @@ from src.agents.arbitration import ArbitrationNode
 from src.agents.auditors import QualityAgent, ReliabilityAgent
 from src.agents.candidates import move_scales
 from src.agents.constraints import assess_limit, stat_offset
-from src.agents.graph import build_mvp_graph
+from src.agents.graph import build_core_graph
 from src.agents.limits import QUALITY_Z, SIGMA_S0_PPM
 from src.agents.optimization import RolloutOptimizationAgent
 from src.agents.state import ControlCandidate
@@ -33,7 +33,7 @@ from src.twin.params import load_params
 
 def test_quality_risk_triggers_success_corrective(quality_risk_tags):
     """1. quality_risk_tags -> hold нарушает серу на SS; статус SUCCESS_CORRECTIVE."""
-    graph = build_mvp_graph()
+    graph = build_core_graph()
     result = graph.invoke({"tags": quality_risk_tags})
 
     rec = result.get("final_recommendation")

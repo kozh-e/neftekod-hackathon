@@ -1,4 +1,9 @@
-# Реализация MVP и статус технологического контура
+# STATUS — Текущее состояние проекта МАС «Нефтекод»
+> Последнее обновление: сентябрь 2026.
+
+> **Legacy-путь, не используется вебом:** `build_parallel_coordinates_figure` и прочие Plotly-фигуры в [`src/agents/pareto.py`](file:///Users/egork/Desktop/neftekod-hackathon/src/agents/pareto.py) не подключены к веб-консоли (`static/console/`) — там Парето-фронт и все остальные графики рисуются на фронтенде через ECharts ([`static/console/charts.js`](file:///Users/egork/Desktop/neftekod-hackathon/static/console/charts.js)). Plotly-фигуры остаются отдельным (вероятно, устаревшим) путём вывода вне веб-консоли; при рефакторинге/удалении графиков в `pareto.py` веб-консоль не пострадает.
+
+## Что реализовано и работает
 
 ### 1. Агенты аудита безопасности и качества [`auditors.py`](file:///Users/egork/Desktop/neftekod-hackathon/src/agents/auditors.py)
 - **`ReliabilityAgent` (Агент Надежности, ПАЗ/ESD)**:
@@ -34,7 +39,7 @@
     - Нормированный порог шага: $\|\Delta \mathbf{u}\|_{\text{norm}} = \sqrt{\sum (\Delta u_i / s_i)^2} \ge 0.05$. Если норма меньше порога $\to$ уставки не меняются (`DEADBAND_REJECT_SMALL_STEP`).
   - Функция-узел `node_arbitration`.
 
-### 3. Сквозной граф вычислений LangGraph [`graph.py`](file:///Users/egork/Desktop/neftekod-hackathon/src/agents/graph.py)
+### 3. Сквозной граф вычислений LangGraph [`graph.py`](file:///Users/egork/Desktop/neftekod-hackathon/src/agents/graph.py) (Legacy MVP граф — удалён, текущий граф: build_core_graph)
 - Полная архитектура сопряжения агентов:
   - `data_guard` $\to$ `route_after_guard`
     - Сбой критических датчиков $\to$ `safe_hold` $\to$ `END`
@@ -63,7 +68,7 @@
 - **REST API Сервис** ([`main.py`](file:///Users/egork/Desktop/neftekod-hackathon/main.py)):
   - Эндпоинт `POST /api/v1/optimize`: валидация телеметрии, канонизация тегов (`AVT_*`, `HT_*`), запуск графа LangGraph, возврат рекомендаций, альтернатив, XAI-отчета и рецептуры блендинга.
   - Поддержка `session_id` для сохранения динамического состояния двойника между циклами.
-- **Интерфейс оператора HITL** ([`src/ui/app.py`](file:///Users/egork/Desktop/neftekod-hackathon/src/ui/app.py)):
+- **Интерфейс оператора HITL** ([`src/ui/app.py`](file:///Users/egork/Desktop/neftekod-hackathon/src/ui/app.py)) (удалено, заменено консолью /console):
   - Информационный дэшборд: массовый расход сырья `HT_F9` (т/ч), входная температура `HT_T6`, сера `HT_Q21` (ppm), перепад `HT_P8` (кПа), возраст анализов LIMS, COT печи П-3 `AVT_T55`.
   - График динамического прогноза серы и вспышки.
   - Таблица альтернатив и рецепт блендинга (3 компонента + 2 присадки из резервуаров).
@@ -250,7 +255,7 @@
   - Каждое значение адресуется уникальным ключом `EvidenceRef(ref="...", value=...)`.
   - Объем пакета ограничен 4–5k токенов.
   - Метод `canonical_hash()` для фиксации криптографического отпечатка контекста.
-- **Инструменты прямого чтения (P4.3, Tools)** ([`src/supervisor/tools.py`](file:///Users/egork/Desktop/neftekod-hackathon/src/supervisor/tools.py)):
+- **Инструменты прямого чтения (P4.3, Tools)** ([`src/supervisor/tools.py`](file:///Users/egork/Desktop/neftekod-hackathon/src/supervisor/tools.py)) (удалён):
   - Набор строго read-only функций поверх снимка `DecisionStore` на момент `as_of`: `get_calibration_history`, `get_constraint_activity`, `get_cycle_trace`, `get_lims_vs_pak`, `get_open_findings`, `get_policy`, `list_decisions`, `explain_constraint`.
 - **Русскоязычные системные промпты (P4.4, Prompts)** ([`src/supervisor/prompts/`](file:///Users/egork/Desktop/neftekod-hackathon/src/supervisor/prompts/)):
   - Версионированные файлы: `diagnostics.v1.md`, `policy.v1.md`, `briefing.v1.md`, `operator_qa.v1.md`.
@@ -349,3 +354,39 @@
 - Полный тестовый набор Pytest: **218+ passed, 0 failed, 0 errors, 100% green**.
 - Все контрольные ворота Gate G0 $\to$ G1 $\to$ G2 $\to$ G3 $\to$ G4 $\to$ **Gate G5 успешно закрыты**.
 - Система полностью готова к автономной демонстрации и защите перед жюри хакатона «Нефтекод 2026».
+
+
+## Открытые задачи
+### P3.14 Legacy cleanup
+- [x] optimization_stub.py
+- [x] implementation_plan_v2.md
+- [x] mockups/
+- [x] baseline_kpis.py
+- [x] test_step1_mvp.py
+- [x] supervisor/tools.py
+- [x] safe_hold.py
+- [ ] optimization.py
+- [ ] auditors.py (still needed by MVP unit tests)
+
+### P4 LLM-супервизор
+- [x] P4.1 Клиент и детерминированный реплей
+- [x] P4.2 Компактный пакет доказательств EvidencePackage
+- [x] P4.3 Инструменты прямого чтения Tools
+- [x] P4.4 Русскоязычные системные промпты
+- [x] P4.5 Ролевые агенты
+- [x] P4.6 Верификация заземления и политик
+- [x] P4.7 Теневой реплей ShadowReplayRunner
+- [x] P4.8 Оркестрация и хранилище
+- [x] P4.9 Триггеры инцидентов и сервис
+- [x] P4.10 Панель супервизора UI
+- [x] P4.11 Интеграция в REST API
+- [x] P4.12 Золотой набор и метрики
+- [x] P4.13 Запись кассет демонстрации
+
+### P5 Финализация
+- [ ] P5.1 Сценарии и KPI (scripts/replay_scenarios.py: S1–S8, таблица до/после)
+- [ ] P5.2 Бюджет времени (tests/perf/test_cycle_budget.py: p95 ≤ 2 с)
+- [x] P5.3 Документация (REFERENCE.md, STATUS.md, PROJECT_STRUCTURE.md, AGENTS.md — выполнено в сентябре 2026)
+- [ ] P5.4 Скрипт демонстрации (scripts/demo_v3.py: S1-S5 + сводка супервизора)
+
+## Известные ограничения и технический долг

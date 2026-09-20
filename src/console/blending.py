@@ -170,7 +170,7 @@ def blending_state(session: "ConsoleSession") -> Optional[BlendingStateDTO]:
 
     ВАЖНО (см. agents/console_tz/QUESTIONS.md [B2]): 03_STREAMLIT_MIGRATION_PLAN.md §0/§5
     предполагает, что граф пишет ключ "blending_recipe" (BlendingResult из
-    node_blending_agent). Это верно только для legacy-графа (build_mvp_graph). Реальный
+    node_blending_agent). Это верно только для legacy-графа. Реальный
     ConsoleSession.graph = get_graph() использует DEFAULT_GRAPH_MODE = "core_v3"
     (build_core_graph), где рецепт выбранного кандидата пишет node_blend_recipe в ключи
     "recipe"/"blending_certificate" как BlendingCertificate (agents/contracts.py) — другой,

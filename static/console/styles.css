@@ -435,6 +435,20 @@ input {
   font-weight: 600;
 }
 
+/* Текстовый оверлей графиков ECharts (напр. "Прогноз не строится") */
+.chart-overlay-text {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  text-align: center;
+  pointer-events: none;
+  z-index: 2;
+}
+
 /* CV Panels */
 .cv-panel {
   background: var(--panel);
@@ -759,6 +773,24 @@ input {
   margin-left: auto;
   font-size: 14px;
   color: var(--ink-3);
+}
+
+.card-validity-urgent {
+  color: var(--edit-ink);
+  font-weight: 600;
+}
+
+.stale-notice-box {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px;
+  background: #FFF4EA;
+  border: 1px solid var(--edit);
+  border-radius: var(--r);
+  color: var(--edit-ink);
+  font-size: 15px;
+  line-height: 1.35;
 }
 
 .narrative-text {

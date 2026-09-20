@@ -1,7 +1,7 @@
 """FastAPI сервис для мультиагентной системы управления технологическим комплексом (API v3).
 
 Предоставляет REST API:
-- POST /api/v1/optimize: Запуск цикла оптимизации через детерминированный граф v3 (или legacy/shadow)
+- POST /api/v1/optimize: Запуск цикла оптимизации через детерминированный граф v3
 - GET /api/v1/decisions/{cycle_id}: Получение полной трассы решения DecisionTrace
 - GET /api/v1/policy: Получение активной версии технологической политики
 - GET /api/v1/health: Проверка доступности сервиса
@@ -16,9 +16,8 @@ from typing import Any, Dict, List, Optional
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, Field
 
-from src.agents.decision_log import append_decision
 from src.agents.decision_store import DEFAULT_STORE
-from src.agents.graph import build_core_graph, build_mvp_graph, get_graph
+from src.agents.graph import build_core_graph
 from src.agents.policy import PolicyStore
 from src.agents.state import RawTelemetry
 from src.xai.card import TZ_REFUSAL_TIMEOUT
@@ -39,7 +38,6 @@ POLICY_STORE = PolicyStore()
 
 # Скомпилированные графы
 core_graph = build_core_graph()
-mvp_graph = build_mvp_graph()
 
 
 class TelemetryPayload(BaseModel):
@@ -63,10 +61,6 @@ class TelemetryPayload(BaseModel):
     economics: Optional[Dict[str, float]] = Field(
         default=None,
         description="Опциональные параметры цен и тарифов для расчета маржи",
-    )
-    graph_mode: Optional[str] = Field(
-        default=None,
-        description="Режим графа: core_v3 (при явном указании), legacy (по умолчанию для обратной совместимости), shadow",
     )
 
 
@@ -142,7 +136,6 @@ async def run_optimization_cycle(payload: TelemetryPayload):
         raise HTTPException(status_code=422, detail=f"Ошибка валидации телеметрии: {exc}")
 
     policy = POLICY_STORE.active_policy
-    mode = payload.graph_mode or "legacy"
 
     state_input: Dict[str, Any] = {
         "raw_telemetry": telemetry,
@@ -153,11 +146,8 @@ async def run_optimization_cycle(payload: TelemetryPayload):
         "policy": policy,
     }
 
-    # Выбор исполняемого графа
-    target_graph = core_graph if mode == "core_v3" else mvp_graph
-
     # Выполнение графа с контролем жесткого бюджета времени
-    future = EXECUTOR.submit(target_graph.invoke, state_input)
+    future = EXECUTOR.submit(core_graph.invoke, state_input)
     try:
         result = future.result(timeout=policy.hard_budget_s)
     except TimeoutError:
@@ -170,19 +160,6 @@ async def run_optimization_cycle(payload: TelemetryPayload):
         )
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f"Внутренняя ошибка графа вычислений: {exc}")
-
-    # В режиме shadow дополнительно запускаем legacy для журнала расхождений
-    if mode == "shadow":
-        try:
-            EXECUTOR.submit(mvp_graph.invoke, state_input)
-        except Exception:
-            pass
-
-    # Запись в legacy-журнал решений для обратной совместимости
-    try:
-        append_decision(result, {"tags": raw_tags, "session_id": payload.session_id, "economics": payload.economics})
-    except Exception:
-        pass
 
     final_rec = result.get("final_recommendation")
     data_quality = result.get("data_quality")

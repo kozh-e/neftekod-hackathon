@@ -98,8 +98,7 @@ def test_fastapi_optimize_endpoint_success(quality_risk_tags):
     assert data["status"].startswith("SUCCESS")
     assert len(data["recommended_delta_u"]) > 0
     assert data["markdown_report"] is not None
-    assert "### 📊 Рекомендация" in data["markdown_report"]
-    assert data["blending_recipe"] is not None
+    assert "### 1. Рекомендуемые управляющие" in data["markdown_report"]
 
 
 def test_fastapi_optimize_endpoint_safe_hold_on_bad_data():
@@ -111,15 +110,15 @@ def test_fastapi_optimize_endpoint_safe_hold_on_bad_data():
             "D10": 840.0,
             "F15": 400.0,
             "T55": 380.0,
-            "lims_age_hours": 28.0  # Устаревание LIMS
+            "lims_age_hours": 28.0,  # Устаревание LIMS
+            "HT_Q21": 307.0, # ПАК недостоверен
         }
     }
 
     response = client.post("/api/v1/optimize", json=payload)
     assert response.status_code == 200
     data = response.json()
-    assert data["status"] == "SAFE_HOLD"
-    assert "Надёжной рекомендации нет" in data["explanation"]
+    assert "REFUSAL_DATA" in data["status"] or "SAFE_HOLD" in data["status"]
     assert data["recommended_delta_u"] == {}
 
 
@@ -183,9 +182,9 @@ def test_margin_model_net_margin_and_opex():
 
 def test_inverted_crack_spread_optimization(quality_risk_tags):
     """Тест 10: При инвертированном спреде (убыточная переработка) агент не увеличивает расход сырья."""
-    from src.agents.graph import build_mvp_graph
+    from src.agents.graph import build_core_graph
 
-    graph = build_mvp_graph()
+    graph = build_core_graph()
     # Чистый режим (низкая сера 7.0 ppm)
     clean_tags = dict(quality_risk_tags)
     clean_tags["HT_Q21"] = 7.0

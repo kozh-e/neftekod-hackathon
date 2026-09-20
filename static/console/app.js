@@ -122,6 +122,10 @@ const store = {
     deciding: {},            // { request_id: true } — блокировка кнопок на время запроса
   },
   isCommitting: false,
+  // Непропускаемое уведомление «рекомендация обновилась, пока вы выбирали» (см. executeCommit).
+  // Не снэпшот значений — store.edits/store.choice и так переживают refresh() при устаревании
+  // цикла (см. refresh()), поэтому кнопка повтора там просто вызывает executeCommit() заново.
+  staleNotice: false,
 };
 
 let debounceTimer = null;
@@ -130,6 +134,22 @@ let pollTimer = null;
 let autoCountdownTimer = null;
 let autoSecondsRemaining = 0;
 let autoTotalSeconds = 150;
+
+// Опрос состояния идёт каждые 2с (см. pollTimer ниже) и раньше безусловно пересобирал DOM
+// интерактивных блоков на каждый тик, даже когда данные не менялись. Из-за этого клик по кнопке
+// (mousedown на старом узле → узел подменяется до mouseup) иногда вообще не порождал событие
+// click — ни запроса к серверу, ни тоста, ни ошибки в консоли: «применяю рекомендацию, иногда
+// ничего не происходит». setHtmlIfChanged пересобирает innerHTML только когда итоговая разметка
+// реально отличается от предыдущей отрисовки того же контейнера.
+const _lastRenderedHtml = new WeakMap();
+
+function setHtmlIfChanged(container, html) {
+  if (!container) return false;
+  if (_lastRenderedHtml.get(container) === html) return false;
+  _lastRenderedHtml.set(container, html);
+  container.innerHTML = html;
+  return true;
+}
 
 function updateAutoTimerDisplay() {
   const timerEl = document.getElementById("auto-timer");
@@ -144,6 +164,24 @@ function updateAutoTimerDisplay() {
     const pct = Math.min(100, Math.max(0, ((total - autoSecondsRemaining) / total) * 100));
     progressFill.style.width = `${pct}%`;
   }
+}
+
+// Точечно обновляет счётчик «до следующего такта» в карточке рекомендации (см. renderAdvisoryCard)
+// напрямую через textContent, а не через переотрисовку всей карточки — иначе (см. setHtmlIfChanged)
+// карточка пересобиралась бы на каждый опрос состояния (2с) и мог снова съедаться клик по «Применить».
+function updateRecValidityCountdown(state) {
+  const el = document.getElementById("rec-validity-countdown");
+  if (!el) return;
+  const nextTickS = state?.clock?.next_tick_in_s;
+  if (nextTickS == null) {
+    el.textContent = "";
+    el.classList.remove("card-validity-urgent");
+    return;
+  }
+  const secsLeft = Math.ceil(nextTickS);
+  const urgent = secsLeft <= 5;
+  el.textContent = urgent ? `· обновится через ${secsLeft} с` : `· до следующего такта ~${secsLeft} с`;
+  el.classList.toggle("card-validity-urgent", urgent);
 }
 
 function syncAutoCountdown(state) {
@@ -763,11 +801,14 @@ function render() {
   // 6b. Секция «Качество продукта и сырья» (F1)
   renderSensors(state);
 
-  // Синхронизация обратного отсчета автомата
-  syncAutoCountdown(state);
-
   // 7. Правая колонка: Карточка решения
+  // renderDecisionCard() идёт ПЕРЕД синхронизацией счётчиков: она (пере)создаёт #auto-timer /
+  // #rec-validity-countdown только когда html реально изменился (setHtmlIfChanged), поэтому оба
+  // счётчика ниже нужно писать заново уже после неё — иначе первое обновление могло бы попасть
+  // в ещё не созданный узел.
   renderDecisionCard();
+  syncAutoCountdown(state);
+  updateRecValidityCountdown(state);
 
   // 8. Правая колонка: Лента
   renderFeed();
@@ -866,9 +907,9 @@ function renderSensors(state) {
   const productHtml = SENSORS_PRODUCT_KEYS.map(rowHtml).join("");
   const feedHtml = SENSORS_FEED_KEYS.map(rowHtml).join("");
 
-  reactorEl.innerHTML = reactorHtml || `<div class="sensors-empty">Нет данных (такт ещё не рассчитан)</div>`;
-  productEl.innerHTML = productHtml || `<div class="sensors-empty">Нет данных (такт ещё не рассчитан)</div>`;
-  feedEl.innerHTML = feedHtml || `<div class="sensors-empty">Нет данных (такт ещё не рассчитан)</div>`;
+  setHtmlIfChanged(reactorEl, reactorHtml || `<div class="sensors-empty">Нет данных (такт ещё не рассчитан)</div>`);
+  setHtmlIfChanged(productEl, productHtml || `<div class="sensors-empty">Нет данных (такт ещё не рассчитан)</div>`);
+  setHtmlIfChanged(feedEl, feedHtml || `<div class="sensors-empty">Нет данных (такт ещё не рассчитан)</div>`);
 }
 
 // Определение активной траектории для графиков
@@ -917,19 +958,17 @@ function renderDecisionCard() {
   if (!container || !state) return;
 
   if (state.mode.current === "AUTO") {
-    container.innerHTML = renderAutoCard(state);
-    bindAutoCardEvents();
+    if (setHtmlIfChanged(container, renderAutoCard(state))) bindAutoCardEvents();
     return;
   }
 
   if (state.recommendation?.status?.startsWith("REFUSAL_")) {
-    container.innerHTML = renderRefusalCard(state);
-    bindRefusalCardEvents();
+    if (setHtmlIfChanged(container, renderRefusalCard(state))) bindRefusalCardEvents();
     return;
   }
 
   if (state.recommendation?.status === "NO_CHANGE_DEADBAND") {
-    container.innerHTML = `
+    setHtmlIfChanged(container, `
       <div class="decision-card-advisory">
         <div class="card-header">
           <span class="card-title">ИЗМЕНЕНИЯ НЕ ТРЕБУЮТСЯ</span>
@@ -937,12 +976,11 @@ function renderDecisionCard() {
         <p class="narrative-text">${state.recommendation.narrative}</p>
         <div style="font-size: 14px; color: var(--ink-3);">Режим стабилен, параметры в пределах технологического коридора.</div>
       </div>
-    `;
+    `);
     return;
   }
 
-  container.innerHTML = renderAdvisoryCard(state);
-  bindAdvisoryCardEvents();
+  if (setHtmlIfChanged(container, renderAdvisoryCard(state))) bindAdvisoryCardEvents();
 }
 
 function renderAdvisoryCard(state) {
@@ -1035,12 +1073,38 @@ function renderAdvisoryCard(state) {
     commitBtnText = `Применить режим «${alt.label}»`;
   }
 
+  // Бейдж «актуально до»: valid_until сам по себе честен (service.py теперь ставит +1 такт,
+  // а не искусственные +30 мин), но настоящий лимит на решение — реальное время до следующего
+  // такта симулятора (next_tick_in_s), потому что именно такт меняет cycle_id и делает коммит
+  // недействительным (STALE_RECOMMENDATION). Раньше это нигде не показывалось до самого клика.
+  // Само число секунд сюда НЕ печатается: next_tick_in_s меняется на каждый опрос (2с), а этот
+  // HTML идёт через setHtmlIfChanged — если зашить счётчик прямо в разметку, карточка снова
+  // пересобиралась бы на каждый опрос и мы вернули бы баг с "съеденными" кликами. Вместо этого
+  // ниже — пустой span, который update RecValidityCountdown() досчитывает точечно, в обход диффа
+  // (тот же приём, что и таймер режима АВТОМАТ, см. updateAutoTimerDisplay).
+  const validityHtml = (rec.valid_until ? `актуально до ${rec.valid_until.slice(11, 16)}` : "")
+    + ` <span id="rec-validity-countdown" class="mono"></span>`;
+
+  const staleNoticeHtml = store.staleNotice ? `
+    <div class="stale-notice-box">
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" style="flex-shrink:0;"><path d="M12 3l10 18H2z"></path><path d="M12 10v5"></path><path d="M12 18v.5"></path></svg>
+      <div style="flex-grow:1;">
+        <b>Рекомендация обновилась, пока вы выбирали.</b> Ваш предыдущий выбор ещё не применён к установке — ниже уже новый такт.
+      </div>
+      <div style="display:flex; gap:8px; flex-shrink:0;">
+        <button id="btn-stale-retry" type="button" class="btn-commit" style="flex: none; width: auto; padding: 0 14px; height: 36px; font-size: 14px;">Пересчитать и повторить мой выбор</button>
+        <button id="btn-stale-dismiss" type="button" class="btn-reject" style="flex: none; width: auto; height: 36px; font-size: 14px;">Понятно</button>
+      </div>
+    </div>
+  ` : "";
+
   return `
     <div class="decision-card-advisory ${hasEdits ? "has-edits" : ""}">
       <div class="card-header">
         <span class="card-title">СИСТЕМА ПРЕДЛАГАЕТ</span>
-        <span class="card-validity mono">${rec.created_at ? rec.created_at.slice(11, 16) : ""} · актуально до ${rec.valid_until ? rec.valid_until.slice(11, 16) : ""}</span>
+        <span class="card-validity mono">${rec.created_at ? rec.created_at.slice(11, 16) : ""} · ${validityHtml}</span>
       </div>
+      ${staleNoticeHtml}
       <p class="narrative-text">${rec.narrative}</p>
 
       <div style="display: flex; flex-direction: column; gap: 8px;">
@@ -1119,11 +1183,14 @@ function renderAutoCard(state) {
   const nextStep = autoInfo?.next_step;
   const ch = nextStep?.changes?.[0];
 
-  const mInit = Math.floor(autoSecondsRemaining / 60);
-  const sInit = Math.floor(autoSecondsRemaining % 60);
-  const timerInitStr = `${String(mInit).padStart(2, "0")}:${String(sInit).padStart(2, "0")}`;
-  const totalS = autoTotalSeconds > 0 ? autoTotalSeconds : 150;
-  const pctInit = Math.min(100, Math.max(0, ((totalS - autoSecondsRemaining) / totalS) * 100));
+  // Таймер и прогресс-бар НЕ считаются от autoSecondsRemaining здесь: это значение тикает каждую
+  // секунду (см. autoCountdownTimer) и пересинхронизируется с сервером на каждый опрос, так что
+  // строка html менялась бы почти на каждый рендер и карточка пересобиралась бы через
+  // setHtmlIfChanged всё так же часто, как и до фикса. Ниже — статичная заглушка; фактическое
+  // значение пишет updateAutoTimerDisplay() напрямую в DOM сразу после renderDecisionCard()
+  // (см. порядок вызовов в render()), в обход диффа.
+  const timerInitStr = "--:--";
+  const pctInit = 0;
 
   const mvRows = (state.series?.mv || []).map((mv) => {
     const maxStepText = mv.corridor.max_step_per_tick != null
@@ -1252,6 +1319,7 @@ function bindAdvisoryCardEvents() {
       store.choice = newChoice;
       store.edits = {};
       store.preview = null;
+      store.staleNotice = false;
       render();
       await recalculateForecastForCurrentMode();
     });
@@ -1268,6 +1336,20 @@ function bindAdvisoryCardEvents() {
   document.getElementById("btn-reset-edits")?.addEventListener("click", () => {
     store.edits = {};
     store.preview = null;
+    store.staleNotice = false;
+    render();
+  });
+
+  // Непропускаемое уведомление об устаревшей рекомендации (см. executeCommit): к этому моменту
+  // refresh() уже подтянул свежий cycle_id, а store.edits/store.choice не сбрасываются при смене
+  // цикла (см. refresh()), так что повтор — это просто повторный вызов executeCommit().
+  document.getElementById("btn-stale-retry")?.addEventListener("click", async () => {
+    store.staleNotice = false;
+    await executeCommit();
+  });
+
+  document.getElementById("btn-stale-dismiss")?.addEventListener("click", () => {
+    store.staleNotice = false;
     render();
   });
 
@@ -1367,6 +1449,7 @@ function triggerPreviewDebounced() {
 // Применение уставок на вкладке «Обзор» (фикс чтения u_current из §2.4, 1-Click Commit)
 async function executeCommit() {
   if (store.isCommitting) return;
+  store.staleNotice = false;
 
   const canCommit = store.preview ? store.preview.can_commit : true;
   if (!canCommit) {
@@ -1416,8 +1499,13 @@ async function executeCommit() {
     await refresh();
   } catch (err) {
     if (err.detail?.code === "STALE_RECOMMENDATION") {
+      // Раньше это был только исчезающий за 4.5с тост — легко пропустить, а выбор оператора
+      // при этом тихо терялся. Теперь показываем непропускаемый блок прямо в карточке
+      // (staleNotice, см. renderAdvisoryCard) с кнопкой одного клика «пересчитать и повторить»:
+      // store.edits/store.choice переживают refresh() при смене цикла (см. refresh()), поэтому
+      // повтор — это просто новый executeCommit() против уже свежего cycle_id.
+      store.staleNotice = true;
       await refresh();
-      showToast("Рекомендация была обновлена системой", "Проверьте актуальные значения на новом такте и нажмите «Применить»", "warn");
     } else {
       showToast(err.message || "Ошибка применения уставок", err.detail?.text || "", "error");
     }
@@ -1494,7 +1582,7 @@ function renderManualRows() {
 
   const curU = currentU(state);
 
-  container.innerHTML = state.series.mv.map((mv) => {
+  const html = state.series.mv.map((mv) => {
     const curVal = curU[mv.sp] != null ? curU[mv.sp] : 0;
     const isEdited = store.manual.edits[mv.sp] != null;
     const targetVal = isEdited ? store.manual.edits[mv.sp] : curVal;
@@ -1521,6 +1609,11 @@ function renderManualRows() {
       </div>
     `;
   }).join("");
+
+  // Опрос идёт каждые 2с и вызывает renderManualRows() безусловно (см. refresh()) — без этой
+  // проверки шаговик пересоздавался бы на каждый тик, съедая клики по +/- и сбрасывая фокус
+  // поля ввода посреди набора числа (тот же баг, что и в карточке рекомендации, см. app.js:~130).
+  if (!setHtmlIfChanged(container, html)) return;
 
   state.series.mv.forEach((mv) => {
     const stepperEl = document.getElementById(`stepper-manual-${mv.sp}`);
@@ -2052,7 +2145,7 @@ function renderFeed() {
 
   const items = store.state.feed.slice(0, 5);
 
-  container.innerHTML = items.map((item) => {
+  const html = items.map((item) => {
     let iconSvg = "";
     if (item.kind === "shield") {
       iconSvg = `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#1D5AA6" stroke-width="2.2"><path d="M12 3l8 3v6c0 4.5-3.4 8-8 9-4.6-1-8-4.5-8-9V6z"></path></svg>`;
@@ -2074,6 +2167,8 @@ function renderFeed() {
       </div>
     `;
   }).join("");
+
+  setHtmlIfChanged(container, html);
 }
 
 // Отображение всплывающих уведомлений (Toast)
