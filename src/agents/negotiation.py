@@ -67,6 +67,16 @@ def _extract_context(state: CoreState) -> AgentContext:
         if data is None:
             data = ctx_def.data
 
+    # ИЗВЕСТНЫЙ ПРОБЕЛ (аудит 2026-09-20, отложено пользователем): state["twin_view"] никогда
+    # не заполняется ни одним узлом графа, поэтому эта ветка срабатывает на КАЖДЫЙ вызов
+    # _extract_context (до ~25-30 раз за цикл) — двойник каждый раз пересоздаётся с нуля,
+    # теряя инерцию FOPDT/смещения между циклами И внутри одного цикла. Готовый, но не
+    # подключённый к живому графу механизм для этого — src/twin/session.py::TWIN_STORE
+    # (TwinSessionStore) — session-scoped twin с физической привязкой по времени; его же
+    # .get() нужно вызвать РОВНО ОДИН РАЗ за цикл, лучше всего в node_estimate_core (там
+    # он гарантированно выполняется один раз — раундовый цикл переговоров зацикливается на
+    # predict, не на estimate), и результат положить в CoreState["twin_view"]. См. память
+    # backend-audit-2026-09-20 для полного разбора и оценки риска регрессий.
     twin_view = state.get("twin_view")
     if twin_view is None:
         twin = FullChainTwin(load_params())
