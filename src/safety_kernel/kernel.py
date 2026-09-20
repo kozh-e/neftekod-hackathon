@@ -140,12 +140,21 @@ class SafetyKernel:
         violated_blocked = set(decision.delta_u.keys()) & blocked_mvs
         checks.append(check("data.blocked_mvs", not bool(violated_blocked), f"Затронуты заблокированные MV: {violated_blocked}" if violated_blocked else ""))
 
-        # 5. Независимая проверка ограничений оборудования и качества
-        if decision.delta_u and twin_factory is not None and estimate is not None:
+        # 5. Независимая проверка ограничений оборудования и качества.
+        # Прогоняется и для HOLD (delta_u пуст) — иначе ядро (единственная независимая от
+        # агентов перепроверка) не заметит, что уже действующее состояние тихо нарушает
+        # предел (см. аудит: RX.DP_MAX мог остаться ACTIVE при ошибке в reliability.py,
+        # и ядро это никак не перепроверяло для NO_CHANGE_DEADBAND).
+        if twin_factory is not None and estimate is not None:
             try:
                 twin = twin_factory(estimate)
                 pred_ss = twin.steady_state(u1)
-                specs = registry.applicable(decision.delta_u) if hasattr(registry, "applicable") else ()
+                if decision.delta_u:
+                    specs = registry.applicable(decision.delta_u) if hasattr(registry, "applicable") else ()
+                else:
+                    # applicable() фильтрует по изменившимся MV — для HOLD это всегда [].
+                    # Для независимой проверки уже действующего состояния берём весь реестр.
+                    specs = getattr(registry, "specs", ())
                 for sp in specs:
                     alias_map = {
                         "GODT.S": "HT_S_PRODUCT",
@@ -165,7 +174,7 @@ class SafetyKernel:
 
                     if val is not None:
                         eff_val = independent_effective_value(sp, estimate, float(val), pol)
-                        if decision.status in (DecisionStatus.SUCCESS, DecisionStatus.SUCCESS_CORRECTIVE):
+                        if decision.status in (DecisionStatus.SUCCESS, DecisionStatus.SUCCESS_CORRECTIVE, DecisionStatus.NO_CHANGE_DEADBAND):
                             if sp.key == "FURNACE.COT_POLICY_WARM":
                                 delta_t55 = decision.delta_u.get("AVT_T55_SP", 0.0)
                                 if delta_t55 > 1e-4 and eff_val > sp.limit + 1e-4:

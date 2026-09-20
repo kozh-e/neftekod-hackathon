@@ -27,6 +27,7 @@ from langgraph.graph.state import CompiledStateGraph
 
 import datetime
 import hashlib
+import logging
 import math
 import time
 import uuid
@@ -80,6 +81,8 @@ from src.agents.state_legacy import FinalRecommendation
 from src.agents.twin_view import TwinView
 from src.twin.chain import FullChainTwin
 from src.twin.params import load_params
+
+logger = logging.getLogger(__name__)
 
 
 class _KernelTwinAdapter:
@@ -323,7 +326,7 @@ def node_journal(state: CoreState) -> dict:
         try:
             save_decision_trace(trace)
         except Exception:
-            pass
+            logger.exception("Не удалось сохранить DecisionTrace cycle_id=%s", c_id)
     return {}
 
 

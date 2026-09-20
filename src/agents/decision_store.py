@@ -10,6 +10,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import json
 import sqlite3
 from datetime import datetime
@@ -35,7 +36,7 @@ class DecisionStore:
         self._init_db()
 
     def _init_db(self) -> None:
-        with sqlite3.connect(self.db_path) as conn:
+        with contextlib.closing(sqlite3.connect(self.db_path)) as conn:
             conn.execute("""
                 CREATE TABLE IF NOT EXISTS decisions (
                     cycle_id TEXT PRIMARY KEY,
@@ -56,7 +57,7 @@ class DecisionStore:
         ts_str = trace.t.isoformat() if hasattr(trace.t, "isoformat") else str(trace.t)
         status_str = trace.decision.status.value if hasattr(trace.decision.status, "value") else str(trace.decision.status)
 
-        with sqlite3.connect(self.db_path) as conn:
+        with contextlib.closing(sqlite3.connect(self.db_path)) as conn:
             conn.execute("""
                 INSERT OR REPLACE INTO decisions (cycle_id, timestamp, status, inputs_hash, payload)
                 VALUES (?, ?, ?, ?, ?)
@@ -69,7 +70,7 @@ class DecisionStore:
 
     def get(self, cycle_id: str) -> Optional[DecisionTrace]:
         """Извлекает DecisionTrace по идентификатору цикла."""
-        with sqlite3.connect(self.db_path) as conn:
+        with contextlib.closing(sqlite3.connect(self.db_path)) as conn:
             cursor = conn.execute("SELECT payload FROM decisions WHERE cycle_id = ?", (cycle_id,))
             row = cursor.fetchone()
             if row:
@@ -79,7 +80,7 @@ class DecisionStore:
     def list_recent(self, limit: int = 50) -> List[DecisionTrace]:
         """Возвращает список последних трасс решений."""
         result: List[DecisionTrace] = []
-        with sqlite3.connect(self.db_path) as conn:
+        with contextlib.closing(sqlite3.connect(self.db_path)) as conn:
             cursor = conn.execute("SELECT payload FROM decisions ORDER BY timestamp DESC LIMIT ?", (limit,))
             for row in cursor.fetchall():
                 try:

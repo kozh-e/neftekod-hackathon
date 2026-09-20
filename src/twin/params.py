@@ -7,9 +7,12 @@
 from __future__ import annotations
 
 import json
+import logging
 from dataclasses import dataclass, field, fields
 from pathlib import Path
 from typing import Any, Dict, List, Literal, Optional
+
+logger = logging.getLogger(__name__)
 
 
 def P(default: Any, source: str, note: str = "") -> Any:
@@ -242,6 +245,6 @@ def load_params(path: str | Path = "config/twin_params.json") -> TwinParams:
         if "dt_min" in data:
             params.dt_min = float(data["dt_min"])
     except Exception:
-        pass
+        logger.exception("Не удалось разобрать %s, используются номинальные параметры ASSUMPTION", p_path)
 
     return params

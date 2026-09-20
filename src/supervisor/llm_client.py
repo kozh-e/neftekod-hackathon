@@ -39,8 +39,8 @@ def extract_json_payload(raw_text: str) -> Dict[str, Any]:
         except json.JSONDecodeError:
             pass
 
-    # 2. Поиск блоков markdown с json
-    markdown_pattern = r"```(?:json)?\s*(\{.*?\})\s*```"
+    # 2. Поиск блоков markdown с json (жадный поиск, т.к. JSON может содержать вложенные объекты)
+    markdown_pattern = r"```(?:json)?\s*(\{.*\})\s*```"
     match = re.search(markdown_pattern, text, re.DOTALL)
     if match:
         try:

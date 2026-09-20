@@ -330,9 +330,11 @@ class StateEstimator:
             "HT_F14": float(tags.get("HT_F14", 6.05)),
         }
 
+        ht_p8_raw = tags.get("HT_P8")
+        ht_dp_kpa_fallback = float(ht_p8_raw) * 980.665 if ht_p8_raw is not None and float(ht_p8_raw) < 5.0 else (float(ht_p8_raw) if ht_p8_raw is not None else 177.0)
         measured_constraints: Dict[str, float] = {
             "AVT_T55": float(tags.get("AVT_T55", u_actual.get("AVT_T55_SP", 381.7))),
-            "HT_DP_KPA": float(tags.get("HT_DP_KPA", tags.get("HT_P8", 177.0) * (980.665 if tags.get("HT_P8", 1.0) < 5.0 else 1.0))),
+            "HT_DP_KPA": float(tags.get("HT_DP_KPA", ht_dp_kpa_fallback)),
             "HT_T11": float(tags.get("HT_T11", 364.0)),
             "HT_GOR": float(tags.get("HT_GOR", u_actual.get("HT_GOR_SP", 360.0))),
             "AVT_F31": float(tags.get("AVT_F31", 540.5)),

@@ -494,6 +494,18 @@ def highest_violated_tier(merit: Merit) -> int:
     return 3
 
 
+def _corrective_only_admissible(cand: Candidate, level: AutomationLevel) -> bool:
+    """
+    В режиме CORRECTIVE_ONLY запрещено наращивание расхода сырья HT_FEED_SP (§5.3) —
+    воспроизводит правило legacy ArbitrationNode.execute() (строки 88-93, 112 до Strangler),
+    которое в v3-арбитраже (decide()) не переприменялось для веток hold-violated
+    (SUCCESS_CORRECTIVE/RECOVERY_ADVISORY).
+    """
+    if level == AutomationLevel.CORRECTIVE_ONLY:
+        return cand.delta_u.get("HT_FEED_SP", 0.0) <= 1e-9
+    return True
+
+
 def economic_move_allowed(cand: Candidate, level: AutomationLevel, ctx: Any) -> bool:
     """
     Проверяет, разрешено ли управляющее воздействие экономической оптимизации:
@@ -630,7 +642,10 @@ def decide(state: CoreState) -> ArbitrationDecision:
 
     # Допустимые кандидаты с учетом допуска на шум, дрейф калибровки и машинную погрешность (0.05 scale)
     FEASIBILITY_TOL = 0.05
-    feasible = [(c, m) for c, m in table.values() if all(vi <= FEASIBILITY_TOL for vi in m.v)]
+    feasible = [
+        (c, m) for c, m in table.values()
+        if all(vi <= FEASIBILITY_TOL for vi in m.v) and _corrective_only_admissible(c, level)
+    ]
     hold_feasible = all(vi <= FEASIBILITY_TOL for vi in hold_merit.v)
 
     # 2. Hold полностью допустим -> Экономическая оптимизация
@@ -691,6 +706,7 @@ def decide(state: CoreState) -> ArbitrationDecision:
         (c, m) for c, m in table.values()
         if m.v[top_tier] <= policy.recovery_rho * hold_merit.v[top_tier]
         and all(m.v[t] <= hold_merit.v[t] for t in range(top_tier))
+        and _corrective_only_admissible(c, level)
     ]
 
     if improving:

@@ -212,10 +212,9 @@ def assess_data(
         reasons.append("Недостоверно или отсутствует измерение температуры выхода Р-202 (HT_T11)")
 
     # Лестница деградации автоматизации (§5.3)
-    critical_fail_all = (
-        ("AVT_T55_SP" in blocked_mvs and "HT_FEED_SP" in blocked_mvs)
-        or (t55_m is not None and t55_m.quality == SignalQuality.MISSING and p8_m is not None and p8_m.quality == SignalQuality.MISSING)
-    )
+    # Второе условие (T55 и P8 оба MISSING) всегда влечёт первое (оба MV уже в blocked_mvs
+    # из проверок quality != GOOD выше), поэтому было мёртвым дублированием — убрано.
+    critical_fail_all = "AVT_T55_SP" in blocked_mvs and "HT_FEED_SP" in blocked_mvs
 
     if critical_fail_all or (pak_invalid and lims_age > t_thresholds.refusal_lims_age_h_without_pak):
         level = AutomationLevel.REFUSAL_DATA

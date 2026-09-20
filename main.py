@@ -10,6 +10,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import datetime
 from concurrent.futures import ThreadPoolExecutor, TimeoutError
 from typing import Any, Dict, List, Optional
@@ -146,10 +147,12 @@ async def run_optimization_cycle(payload: TelemetryPayload):
         "policy": policy,
     }
 
-    # Выполнение графа с контролем жесткого бюджета времени
+    # Выполнение графа с контролем жесткого бюджета времени.
+    # Ожидание идёт через asyncio.wrap_future, а не future.result(), чтобы не
+    # блокировать event loop и не сериализовать параллельные запросы /optimize.
     future = EXECUTOR.submit(core_graph.invoke, state_input)
     try:
-        result = future.result(timeout=policy.hard_budget_s)
+        result = await asyncio.wait_for(asyncio.wrap_future(future), timeout=policy.hard_budget_s)
     except TimeoutError:
         # Регламентный таймаут жесткого бюджета
         return OptimizationResponse(
@@ -301,7 +304,7 @@ async def reject_change_request(request_id: str, payload: DecisionActionRequest)
 async def ask_supervisor(payload: OperatorQuestionRequest) -> Dict[str, Any]:
     """Консультация оператора по трассам решений и ограничениям установки."""
     from src.supervisor.service import DEFAULT_SUPERVISOR_SERVICE
-    ans = DEFAULT_SUPERVISOR_SERVICE.answer_operator(payload.question)
+    ans = await asyncio.wrap_future(EXECUTOR.submit(DEFAULT_SUPERVISOR_SERVICE.answer_operator, payload.question))
     if not ans:
         raise HTTPException(status_code=500, detail="Супервизор не смог сформировать ответ")
     return ans.model_dump()
