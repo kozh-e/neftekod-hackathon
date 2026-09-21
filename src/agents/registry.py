@@ -247,45 +247,15 @@ T0_SPECS: tuple[ConstraintSpec, ...] = (
             note="Ограничение термонапряжения змеевика печи П-3",
         ),
     ),
-    # RATE.HT_P_SP.MAX и RATE.HT_GOR_SP.MAX отсутствовали (аудит 2026-09-20) — обнаружено при
-    # переводе safety_kernel/kernel.py::T0.rate на fail-closed: без них registry.mv_max_move
-    # не содержал записи для этих двух MV, и live-кандидаты, двигающие HT_P_SP/HT_GOR_SP,
-    # начали ошибочно отклоняться ядром безопасности (test_audit_e3/e9). limit=max_move из
-    # src/agents/candidates.py::DEFAULT_MVS (тот же генератор кандидатов, единый источник).
-    ConstraintSpec(
-        key="RATE.HT_P_SP.MAX",
-        label="Максимальная скорость изменения давления сепарации Р-202",
-        owner="kernel",
-        tier=Tier.T0_BOUNDS,
-        quantity="RATE.HT_P_SP",
-        sense="max",
-        limit=0.05,
-        unit="МПа/такт",
-        scale=0.025,
-        depends_on=frozenset({"HT_P_SP"}),
-        provenance=Provenance(
-            kind=ProvenanceKind.ASSUMPTION,
-            ref="agents/ASSUMPTIONS.md §1",
-            note="Максимальное приращение хода за один цикл управления (= src/agents/candidates.py DEFAULT_MVS.HT_P_SP.max_move)",
-        ),
-    ),
-    ConstraintSpec(
-        key="RATE.HT_GOR_SP.MAX",
-        label="Максимальная скорость изменения кратности ВСГ/сырье",
-        owner="kernel",
-        tier=Tier.T0_BOUNDS,
-        quantity="RATE.HT_GOR_SP",
-        sense="max",
-        limit=30.0,
-        unit="нм3/м3/такт",
-        scale=15.0,
-        depends_on=frozenset({"HT_GOR_SP"}),
-        provenance=Provenance(
-            kind=ProvenanceKind.ASSUMPTION,
-            ref="agents/ASSUMPTIONS.md §1",
-            note="Максимальное приращение хода за один цикл управления (= src/agents/candidates.py DEFAULT_MVS.HT_GOR_SP.max_move)",
-        ),
-    ),
+    # RATE.HT_P_SP.MAX и RATE.HT_GOR_SP.MAX сознательно отсутствуют: по паспорту оборудования
+    # у HT_P_SP/HT_GOR_SP нет ограничения скорости хода за такт (подтверждено
+    # tests/console/test_forecast_corridor.py::test_corridor_specs — "без коридора в
+    # паспорте"). НЕ добавлять их по аналогии с candidates.py::DEFAULT_MVS.max_move — тот
+    # max_move является параметром генерации кандидатов (шаг разведки оптимизатора), а не
+    # физическим лимитом скорости хода, и совпадение с RATE.HT_FEED_SP/HT_TIN_SP/AVT_T55_SP
+    # для остальных трёх MV не означает, что оно обязано существовать для всех пяти (аудит
+    # 2026-09-20 сначала ошибочно добавил эти два спека, сломав console corridor-тесты,
+    # затем откатил).
 )
 
 

@@ -123,7 +123,16 @@ class SafetyKernel:
                         bounds_err.append(f"{k}={val:.2f} вне [{lo}, {hi}]")
         checks.append(check("T0.bounds", bounds_ok, "; ".join(bounds_err)))
 
-        # 2. Проверка T0.rate: скорость изменения за такт (тот же fail-closed принцип).
+        # 2. Проверка T0.rate: скорость изменения за такт.
+        # Fail-closed только на уровне объекта registry (нет атрибута mv_max_move вовсе —
+        # это малоформный/неверный registry). Отсутствие КОНКРЕТНОГО MV в mv_max_move —
+        # НЕ повод для fail-closed: по паспорту оборудования у HT_P_SP/HT_GOR_SP сознательно
+        # нет ограничения скорости хода (см. registry.py, tests/console/test_forecast_
+        # corridor.py::test_corridor_specs) — это легитимное "проверено, лимита нет", а не
+        # "неизвестно". Первая попытка (аудит 2026-09-20) fail-closed'ила и по конкретному
+        # MV тоже, добавив для этого два выдуманных RATE-спека по значениям из
+        # candidates.py::DEFAULT_MVS.max_move (шаг генерации кандидатов, а не физический
+        # лимит) — сломала console corridor-тесты и была отменена.
         rate_ok = True
         rate_err = []
         if registry:
@@ -135,8 +144,6 @@ class SafetyKernel:
                     if abs(delta) <= 1e-9:
                         continue
                     if k not in registry.mv_max_move:
-                        rate_ok = False
-                        rate_err.append(f"{k}: нет ограничения скорости в registry.mv_max_move")
                         continue
                     max_m = registry.mv_max_move[k]
                     if abs(delta) > max_m + 1e-4:
