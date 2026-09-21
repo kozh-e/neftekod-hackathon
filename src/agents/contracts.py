@@ -7,7 +7,17 @@
 from __future__ import annotations
 
 from datetime import datetime
-from enum import IntEnum, StrEnum
+from enum import Enum, IntEnum
+
+try:  # Python 3.11+ (целевая среда Docker python:3.12-slim)
+    from enum import StrEnum
+except ImportError:  # Python 3.10: минимальный эквивалент stdlib-класса
+    # Повторяет class StrEnum(str, ReprEnum): члены являются str, str()/format()
+    # возвращают значение, а не "Класс.ЧЛЕН". auto() в контрактах не используется —
+    # все значения заданы явными строками, поэтому различие в auto() неактуально.
+    class StrEnum(str, Enum):  # type: ignore[no-redef]
+        __str__ = str.__str__
+        __format__ = str.__format__
 from typing import Any, Dict, List, Literal, Mapping, Optional, Tuple
 from pydantic import BaseModel, ConfigDict, Field
 

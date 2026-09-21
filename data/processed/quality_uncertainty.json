@@ -1,31 +1,38 @@
 {
   "sulfur": {
-    "sigma_train": 0.829,
-    "sigma_test": 0.833,
-    "n_train": 958,
-    "n_test": 454,
+    "sigma_total_train": 0.12444,
+    "sigma_total_all": 0.12716,
+    "sigma_total_oot": 0.13309,
+    "sigma0_backed_out": 0.11564,
+    "median_sigma_calib": 0.04596,
+    "n_train": 983,
+    "n_oot": 471,
     "median_age_h": 24.0,
-    "boundary_band_n": 174,
-    "boundary_realized_violation_pct": 1.15
+    "domain": "log",
+    "s_nominal_ppm": 8.5,
+    "sigma0_ppm_at_nominal": 1.04207
   },
   "t95": {
-    "sigma_train": 5.665,
-    "sigma_test": 6.087,
-    "n_train": 894,
-    "n_test": 389,
+    "sigma_total_train": 5.35582,
+    "sigma_total_all": 5.41142,
+    "sigma_total_oot": 5.49296,
+    "sigma0_backed_out": 4.93708,
+    "median_sigma_calib": 2.07606,
+    "n_train": 900,
+    "n_oot": 389,
     "median_age_h": 24.0,
-    "boundary_band_n": 264,
-    "boundary_realized_violation_pct": 0.76,
-    "sigma0_backed_out": 3.271
+    "domain": "linear"
   },
   "flash": {
-    "sigma_train": 4.781,
-    "sigma_test": 3.071,
-    "n_train": 1080,
-    "n_test": 430,
+    "sigma_total_train": 4.29207,
+    "sigma_total_all": 3.82135,
+    "sigma_total_oot": 3.03373,
+    "sigma0_backed_out": 3.85253,
+    "median_sigma_calib": 1.89206,
+    "n_train": 1085,
+    "n_oot": 430,
     "median_age_h": 24.0,
-    "boundary_band_n": 474,
-    "boundary_realized_violation_pct": 1.48
+    "domain": "linear"
   },
   "furnace": {
     "n_hours": 30003,
@@ -68,5 +75,36 @@
     "z_min": 3.31,
     "alpha_min_pct": 0.046,
     "max_regret_rub_h": 474.0
+  },
+  "_источник": "notebooks/01_model_evaluation.ipynb — воспроизводимый пересчёт. Заменяет отсутствующий в репозитории scripts/estimate_quality_uncertainty.py",
+  "_методика": {
+    "оценка": "робастная, IQR/1.349",
+    "константа": "σ₀ = sqrt(σ_эмп² − медиана(σ_calib)²), порог 0.3·σ_эмп",
+    "лаг ЛИМС, ч": 24.0,
+    "train": "< 2025-07-01",
+    "oot": "[2025-07-01 .. 2026-08-08)",
+    "домен серы": "логарифмический"
+  },
+  "d15": {
+    "sigma_total_train": 1.24908,
+    "sigma_total_all": 1.23055,
+    "sigma_total_oot": 1.16384,
+    "sigma0_backed_out": 1.07206,
+    "median_sigma_calib": 0.641,
+    "n_train": 839,
+    "n_oot": 173,
+    "median_age_h": 24.0,
+    "domain": "linear"
+  },
+  "cfpp": {
+    "sigma_total_train": 1.44181,
+    "sigma_total_all": 1.49555,
+    "sigma_total_oot": 1.58265,
+    "sigma0_backed_out": 1.25458,
+    "median_sigma_calib": 0.71052,
+    "n_train": 274,
+    "n_oot": 140,
+    "median_age_h": 24.0,
+    "domain": "linear"
   }
 }

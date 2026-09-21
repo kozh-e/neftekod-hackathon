@@ -30,6 +30,27 @@
 
 ## 🚀 Быстрый старт
 
+### 0. Установка зависимостей
+
+```bash
+python -m venv .venv
+.venv/Scripts/pip install -r requirements.txt
+```
+
+Для валидационного отчёта и офлайн-калибровки нужен дополнительный набор
+(numpy / pandas / matplotlib / scipy / openpyxl / jupyter):
+
+```bash
+.venv/Scripts/pip install -r requirements-nb.txt
+```
+
+Промышленный архив телеметрии (`242000_tags.csv`, `avt_tags.csv`) в репозиторий не
+входит из-за размера. Путь к нему задаётся переменной окружения:
+
+```bash
+export NEFTEKOD_DATA_DIR="C:/хакатон данные/data"
+```
+
 ### 1. Демонстрационный скрипт (5 историй ТЗ §6)
 Запуск интерактивной консольной демонстрации ключевых сценариев:
 ```bash
@@ -63,7 +84,40 @@ uvicorn main:app --host 0.0.0.0 --port 8000 --reload
 ```
 Документация Swagger UI: `http://localhost:8000/docs`.
 
-### 5. Запуск полного набора автоматических тестов
+### 5. Валидационный отчёт по качеству прогноза (Критерий 2 ТЗ)
+
+Исследовательский ноутбук `notebooks/01_model_evaluation.ipynb` проверяет, насколько
+точно агенты предсказывают показатели качества ДТ, на отложенной по времени выборке
+**2025-07-01 … 2026-08-07**. Ноутбук импортирует боевой код (`VakCalculator`,
+`StateEstimator`), а не копии формул, и коммитится с сохранёнными результатами —
+открыть и посмотреть можно без запуска.
+
+Чтобы пересчитать:
+
+```bash
+.venv/Scripts/python -m ipykernel install --user --name neftekod --display-name "Python 3 (neftekod .venv)"
+.venv/Scripts/python -m jupyter nbconvert --to notebook --execute notebooks/01_model_evaluation.ipynb --inplace --ExecutePreprocessor.timeout=1800
+```
+
+Что внутри: метрики 17 формул ВАК против ЛИМС с бутстрап-интервалами, причинно
+корректный реплей оценщика состояния (проба подаётся через 24 ч после отбора),
+валидация кинетики гидродесульфуризации и колонны стабилизации, анализ остатков,
+пересчёт σ и проверка устойчивости к выбросам ЛИМС. Побочные артефакты —
+`data/processed/quality_uncertainty.json`, `model_evaluation_summary.json` и
+`data/processed/figures/`.
+
+### 6. Офлайн-калибровка цифрового двойника
+
+```bash
+.venv/Scripts/python scripts/calibrate_twin.py
+```
+
+Пересчитывает `config/twin_params.json` и `data/processed/calibration_report.md`
+по архиву: номинальный режим, экзотерма реактора Р-202, модель вспышки К-201
+(калибруется против лабораторных проб) и чувствительность T95 сырья к отбору на АВТ.
+Разделение Train / Test строго по времени, без перемешивания.
+
+### 7. Запуск полного набора автоматических тестов
 ```bash
 pytest -v tests/
 ```

@@ -25,15 +25,40 @@ def test_stabilizer_feed_load_drop():
 
 
 def test_stabilizer_p24_derivative():
-    """Тест 3: Рост давления верха К-201 (P24) снижает температуру вспышки."""
-    calc = StabilizerColumnCalculator(StabilizerParams())
+    """Тест 3: Рост давления верха К-201 (P24) снижает температуру вспышки.
+
+    Величина эффекта задаётся калиброванным a_P, поэтому проверяется не «магическое»
+    число, а корректность проводки параметра в модель и его физическая правдоподобность.
+    """
+    params = StabilizerParams()
+    calc = StabilizerColumnCalculator(params)
     flash_base = calc.evaluate(feed_tph=219.6, p24_mpa=0.585, w7_tph=0.173)
     flash_high_p = calc.evaluate(feed_tph=219.6, p24_mpa=0.585 + 0.10, w7_tph=0.173)
 
-    assert flash_high_p < flash_base
+    assert flash_high_p < flash_base, "рост давления верха К-201 обязан снижать вспышку"
     diff = flash_base - flash_high_p
-    # a_P = -19.9 °C/МПа * 0.1 МПа = 1.99 °C
-    assert diff == pytest.approx(1.99, abs=0.1)
+    assert diff == pytest.approx(-params.a_P * 0.10, abs=1e-6), "параметр a_P проведён неверно"
+    # Физическая правдоподобность самого коэффициента: 0.5…4 °C на 0.1 МПа
+    assert 0.5 <= diff <= 4.0, f"чувствительность к P24 вне физичного диапазона: {diff:.2f} °C"
+
+
+def test_stabilizer_t18_anchor():
+    """Тест 5: Якорь по APC-анализатору HT_T18 работает и остаётся опциональным."""
+    params = StabilizerParams()
+    calc = StabilizerColumnCalculator(params)
+
+    base = calc.evaluate(feed_tph=219.6, p24_mpa=0.585, w7_tph=0.173)
+    at_nominal = calc.evaluate(feed_tph=219.6, p24_mpa=0.585, w7_tph=0.173,
+                               t18_c=params.t18_ref)
+    # В номинальной точке анализатора якорь ничего не добавляет
+    assert at_nominal == pytest.approx(base, abs=1e-9)
+
+    # Рост показания анализатора повышает оценку вспышки, с весом a_T18
+    higher = calc.evaluate(feed_tph=219.6, p24_mpa=0.585, w7_tph=0.173,
+                           t18_c=params.t18_ref + 5.0)
+    assert higher > base
+    assert higher - base == pytest.approx(params.a_T18 * 5.0, abs=1e-6)
+    assert 0.0 <= params.a_T18 <= 1.0, "вес показания анализатора вне [0; 1]"
 
 
 def test_stabilizer_physical_bounds():

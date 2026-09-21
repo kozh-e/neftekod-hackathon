@@ -156,8 +156,11 @@ async def run_optimization_cycle(payload: TelemetryPayload):
     future = EXECUTOR.submit(core_graph.invoke, state_input)
     try:
         result = await asyncio.wait_for(asyncio.wrap_future(future), timeout=policy.hard_budget_s)
-    except TimeoutError:
-        # Регламентный таймаут жесткого бюджета
+    except (TimeoutError, asyncio.TimeoutError):
+        # Регламентный таймаут жесткого бюджета.
+        # Перехват обоих имён: на Python 3.11+ asyncio.TimeoutError и
+        # concurrent.futures.TimeoutError — алиасы встроенного TimeoutError,
+        # на 3.10 это три разных класса, и asyncio.wait_for бросает свой.
         return OptimizationResponse(
             status="REFUSAL_TIMEOUT",
             explanation=TZ_REFUSAL_TIMEOUT,

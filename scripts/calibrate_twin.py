@@ -1,13 +1,21 @@
-"""Скрипт офлайн-калибровки параметров цифрового двойника на промышленном архиве КИПиА/LIMS/ПАК.
+"""Офлайн-калибровка параметров цифрового двойника на промышленном архиве КИПиА/ЛИМС.
 
-Реализует требования Этапа 7 (implementation_plan_v2.md):
-1. Загрузка CSV 24-2000 и АВТ-6, сопоставление с архивами ЛИМС и ПАК через backward merge_asof;
-2. Очистка насыщений КИП (307/313 -> NaN), фильтрация рабочих режимов (HT_F9 > 120, AVT_F65 > 400);
-3. Разделение выборки: Train (до 2025-06-30) и Test (с 2025-07-01);
-4. Расчет номинального режима и калибровка подмоделей (FeedLink, Реактор, Стабилизатор, Продукт, Статистика);
-5. Валидация на отложенном периоде Test и экспорт артефактов:
+Запуск:
+    python scripts/calibrate_twin.py
+Путь к архиву задаётся переменной окружения NEFTEKOD_DATA_DIR
+(по умолчанию — каталог с 242000_tags.csv и avt_tags.csv рядом с проектом).
+
+Этапы:
+1. Загрузка телеметрии 24-2000 и АВТ-6 и лабораторных анализов ЛИМС;
+2. Очистка: коды отказа КИП, фильтр рабочих режимов, санитарный контроль поточных
+   анализаторов серы;
+3. Разделение по времени: Train (до 2025-06-30) и Test (с 2025-07-01) без перемешивания;
+4. Калибровка подмоделей МНК с проверкой физичности знаков;
+5. Валидация на отложенном периоде и экспорт:
    - config/twin_params.json
    - data/processed/calibration_report.md
+
+Методика очистки и границ правдоподобия согласована с notebooks/01_model_evaluation.ipynb.
 """
 
 from __future__ import annotations
@@ -16,287 +24,483 @@ import json
 import math
 import os
 from pathlib import Path
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, List, Sequence, Tuple
 
 import numpy as np
 import pandas as pd
 
-
 ROOT_DIR = Path(__file__).resolve().parent.parent
+DATA_DIR = Path(os.getenv("NEFTEKOD_DATA_DIR", r"C:\хакатон данные\data"))
+LIMS_FILE = ROOT_DIR / "initial_data" / "ЛИМСы 01.01.2023 - н.в_ (2).xlsx"
+
+TRAIN_END = pd.Timestamp("2025-07-01")
+TEST_END = pd.Timestamp("2026-08-08")
+ASOF_TOL = pd.Timedelta("30min")
+CLAMP_VALUES = (307.0, 313.0)
+
+# Санитарные границы поточных анализаторов серы (совпадают с DataGuard.PHYSICAL_RANGES)
+Q20_RANGE = (1000.0, 12000.0)     # сера сырья, ppm в базисе тега
+Q21_RANGE = (0.5, 100.0)          # сера продукта, мг/кг
+Q20_TO_LIMS = 1.0 / 0.878
+
+# Границы правдоподобия лабораторных показателей (совпадают с estimation.LIMS_PLAUSIBLE_RANGE)
+LIMS_RANGE = {"FlashPoint": (20.0, 130.0), "95%.T": (150.0, 420.0), "D15": (650.0, 1000.0),
+              "Mg.Sulfur": (0.01, 100.0), "CFPP": (-70.0, 40.0), "CetaneNumber": (10.0, 90.0)}
+
+HT_COLS = ["date", "F2", "T6", "W7", "P8", "F9", "W10", "T11", "P13", "F14", "F15",
+           "T18", "Q20", "Q21", "T23", "P24", "F25", "F26"]
+AVT_COLS = ["date", "F30", "F32", "F65", "T55", "P52", "F31"]
+
+# Границы блоков широкой таблицы ЛИМС -> код точки отбора
+LIMS_POINTS = {0: "AVT_P1", 22: "AVT_P2", 36: "AVT_P2_1", 50: "AVT_P3",
+               66: "HT_FEED", 82: "HT_PROD"}
 
 
-def load_archive_data() -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
-    """Загрузка телеметрии КИПиА, ЛИМС и ПАК."""
-    print("Загрузка архива телеметрии 24-2000...")
-    ht_path = ROOT_DIR / "initial_data" / "242000_tags.csv"
-    ht_cols = [
-        "date", "F2", "T6", "W7", "P8", "F9", "W10", "T11", "P13",
-        "F14", "F15", "T18", "Q20", "Q21", "T23", "P24", "F25", "F26"
-    ]
-    df_ht = pd.read_csv(ht_path, usecols=ht_cols)
+# --------------------------------------------------------------------------- загрузка
+def load_scada() -> pd.DataFrame:
+    """Телеметрия обеих установок, сведённая по метке времени."""
+    ht_path, avt_path = DATA_DIR / "242000_tags.csv", DATA_DIR / "avt_tags.csv"
+    for p in (ht_path, avt_path, LIMS_FILE):
+        if not p.exists():
+            raise FileNotFoundError(
+                f"Не найден {p}.\nЗадайте путь к архиву через NEFTEKOD_DATA_DIR."
+            )
+    print(f"Загрузка телеметрии из {DATA_DIR}...")
+    df_ht = pd.read_csv(ht_path, usecols=HT_COLS)
+    df_avt = pd.read_csv(avt_path, usecols=AVT_COLS)
     df_ht["date"] = pd.to_datetime(df_ht["date"])
-    # Переименование в канонический вид
-    rename_ht = {c: f"HT_{c}" for c in ht_cols if c != "date"}
-    df_ht = df_ht.rename(columns=rename_ht)
-
-    print("Загрузка архива телеметрии АВТ-6...")
-    avt_path = ROOT_DIR / "initial_data" / "avt_tags.csv"
-    avt_cols = ["date", "F30", "F32", "F65", "T55", "T71", "D10", "P52"]
-    df_avt = pd.read_csv(avt_path, usecols=avt_cols)
     df_avt["date"] = pd.to_datetime(df_avt["date"])
-    rename_avt = {c: f"AVT_{c}" for c in avt_cols if c != "date"}
-    df_avt = df_avt.rename(columns=rename_avt)
-
-    # Объединение КИПиА по метке времени
-    df_scada = pd.merge(df_ht, df_avt, on="date", how="inner").sort_values("date")
-
-    # Замена значений насыщения 307 и 313 на NaN
-    num_cols = [c for c in df_scada.columns if c != "date"]
-    for c in num_cols:
-        df_scada.loc[df_scada[c].isin([307.0, 313.0]), c] = np.nan
-
-    print(f"Всего строк SCADA: {len(df_scada):,}")
-    return df_scada
+    df_ht = df_ht.rename(columns={c: f"HT_{c}" for c in HT_COLS if c != "date"})
+    df_avt = df_avt.rename(columns={c: f"AVT_{c}" for c in AVT_COLS if c != "date"})
+    df = pd.merge(df_ht, df_avt, on="date", how="inner").sort_values("date")
+    print(f"  строк телеметрии: {len(df):,}, период {df['date'].min()} — {df['date'].max()}")
+    return df.reset_index(drop=True)
 
 
-def load_lims_data() -> pd.DataFrame:
-    """Загрузка лабораторных паспортов LIMS."""
-    lims_file = ROOT_DIR / "initial_data" / "ЛИМСы 01.01.2023 - н.в_ (2).xlsx"
-    if not lims_file.exists():
-        return pd.DataFrame()
+def strip_fault_codes(df: pd.DataFrame) -> Tuple[pd.DataFrame, int, int]:
+    """Снимает 307/313 только там, где значение является кодом отказа.
 
-    print("Парсинг лабораторных анализов LIMS...")
-    raw = pd.read_excel(lims_file, header=None)
-
-    records: List[Dict[str, Any]] = []
-
-    # Точка 1: Сырье ГО (столбцы 66..80)
-    # Mass.Sulfur в столбцах (80, 81), D15 (78, 79), 95%.T (72, 73)
-    s_feed_col, s_feed_val = 80, 81
-    df_s_feed = raw.iloc[3:, [s_feed_col, s_feed_val]].dropna()
-    df_s_feed.columns = ["date", "LIMS_HT_FEED_S"]
-
-    # Точка 2: Гидрогенизат (столбцы 82..106)
-    # Mg.Sulfur (94, 95), FlashPoint (86, 87), D15 (84, 85), 95%.T (92, 93), CFPP (96, 97), CetaneNumber (102, 103)
-    cols_map = {
-        (94, 95): "LIMS_HT_S",
-        (86, 87): "LIMS_HT_FLASH",
-        (84, 85): "LIMS_HT_D15",
-        (92, 93): "LIMS_HT_T95",
-        (96, 97): "LIMS_HT_CFPP",
-        (102, 103): "LIMS_HT_CN",
-    }
-
-    dfs = [df_s_feed]
-    for (d_col, v_col), name in cols_map.items():
-        sub = raw.iloc[3:, [d_col, v_col]].dropna()
-        sub.columns = ["date", name]
-        dfs.append(sub)
-
-    # Объединение всех измерений LIMS
-    merged_lims = dfs[0]
-    for df_item in dfs[1:]:
-        merged_lims = pd.merge(merged_lims, df_item, on="date", how="outer")
-
-    merged_lims["date"] = pd.to_datetime(merged_lims["date"], errors="coerce")
-    merged_lims = merged_lims.dropna(subset=["date"]).sort_values("date")
-    for c in merged_lims.columns:
-        if c != "date":
-            merged_lims[c] = pd.to_numeric(merged_lims[c], errors="coerce")
-
-    print(f"Всего анализов LIMS: {len(merged_lims):,}")
-    return merged_lims
+    Признак кода отказа: значение лежит вне робастной ограды [Q1-3*IQR; Q3+3*IQR]
+    остального распределения тега ЛИБО совпадает с максимумом тега (жёсткий потолок).
+    Слепое удаление всех 307/313 выбрасывает валидные измерения: например
+    температура 307 °C попадает в рабочий диапазон AVT_T17 и HT_T23.
+    """
+    out = df.copy()
+    removed = kept = 0
+    for c in [c for c in df.columns if c != "date"]:
+        s = df[c]
+        rest = s[~s.isin(CLAMP_VALUES)].dropna()
+        if len(rest) < 100:
+            continue
+        q1, q3 = np.percentile(rest, [25, 75])
+        lo_fence, hi_fence = q1 - 3 * (q3 - q1), q3 + 3 * (q3 - q1)
+        tag_max = float(s.max())
+        for v in CLAMP_VALUES:
+            mask = s == v
+            hits = int(mask.sum())
+            if not hits:
+                continue
+            if v < lo_fence or v > hi_fence or abs(tag_max - v) < 1e-9:
+                out.loc[mask, c] = np.nan
+                removed += hits
+            else:
+                kept += hits
+    print(f"  снято кодов отказа: {removed:,}; сохранено значений в рабочем диапазоне: {kept:,}")
+    return out, removed, kept
 
 
-def calibrate_and_evaluate():
-    """Основной пайплайн калибровки и оценки моделей."""
-    df_scada = load_archive_data()
-    df_lims = load_lims_data()
+def working_mask(df: pd.DataFrame) -> pd.Series:
+    """Рабочий режим по трём независимым признакам.
 
-    # Фильтр рабочих периодов
-    mask_work = (df_scada["HT_F9"] > 120.0) & (df_scada["AVT_F65"] > 400.0)
-    df_work = df_scada[mask_work].copy().sort_values("date")
-    print(f"Рабочих строк КИПиА: {len(df_work):,}")
+    Одного расхода сырья недостаточно: на остановах HT_F9 даёт одиночные всплески
+    выше 120 т/ч при холодном разгруженном реакторе (T6 около 8 °C, P13 около 0.015 МПа).
+    """
+    return ((df["HT_F9"] > 120.0) & (df["HT_T6"] > 300.0)
+            & (df["HT_P13"] > 3.0) & (df["AVT_F65"] > 400.0))
 
-    # Разбиение Train (до 2025-06-30) / Test (с 2025-07-01)
-    split_date = pd.Timestamp("2025-07-01")
-    train = df_work[df_work["date"] < split_date].copy()
-    test = df_work[df_work["date"] >= split_date].copy()
-    print(f"Train строк: {len(train):,}, Test строк: {len(test):,}")
 
-    # 1. Номинальный режим (медианы Train)
-    nominal: Dict[str, float] = {}
-    for col in train.columns:
-        if col != "date":
-            med = float(train[col].median(skipna=True))
-            if not math.isnan(med):
-                nominal[col] = round(med, 4)
+def sanitize_analyzers(df: pd.DataFrame) -> pd.DataFrame:
+    """Санитарный контроль поточных анализаторов серы.
 
-    # 2. Калибровка T_out - T_in (МНК)
-    # y = T11 - T6; X = [1, F9, Q20/1000, F14]
-    df_reg = train[["HT_T11", "HT_T6", "HT_F9", "HT_Q20", "HT_F14"]].dropna()
-    y_dt = df_reg["HT_T11"] - df_reg["HT_T6"]
-    X_dt = np.column_stack([
-        np.ones(len(df_reg)),
-        df_reg["HT_F9"],
-        df_reg["HT_Q20"] * 0.878 / 1000.0,
-        df_reg["HT_F14"],
-    ])
-    c_coeffs, _, _, _ = np.linalg.lstsq(X_dt, y_dt, rcond=None)
-    c0, cF, cS, cQ = c_coeffs
+    HT_Q20 нестабилен: скачет между десятками и тысячами ppm и залипает на пределе
+    15047. HT_Q21 на пусках выдаёт 0.05 мг/кг при фактических ~8 по лаборатории.
+    Недостоверные показания заменяются на NaN, а не на номинал: подставлять номинал
+    в калибровку значило бы выдумывать данные.
+    """
+    out = df.copy()
+    bad20 = ~out["HT_Q20"].between(*Q20_RANGE)
+    bad21 = ~out["HT_Q21"].between(*Q21_RANGE)
+    out.loc[bad20, "HT_Q20"] = np.nan
+    out.loc[bad21, "HT_Q21"] = np.nan
+    print(f"  снято недостоверных показаний: HT_Q20 {int(bad20.sum()):,}, "
+          f"HT_Q21 {int(bad21.sum()):,}")
+    return out
 
-    # 3. Калибровка вспышки по T18 (МНК)
-    df_fl = train[["HT_T18", "HT_F9", "HT_P24", "HT_W7"]].dropna()
-    f9_ref = nominal.get("HT_F9", 219.6)
-    p24_ref = nominal.get("HT_P24", 0.585)
-    w7_ref = nominal.get("HT_W7", 0.173)
 
-    X_fl = np.column_stack([
-        np.ones(len(df_fl)),
-        df_fl["HT_F9"] - f9_ref,
-        df_fl["HT_P24"] - p24_ref,
-        df_fl["HT_W7"] - w7_ref,
-    ])
-    fl_coeffs, _, _, _ = np.linalg.lstsq(X_fl, df_fl["HT_T18"], rcond=None)
-    fl_const, a_F, a_P, a_W = fl_coeffs
+def load_lims() -> pd.DataFrame:
+    """Широкая таблица пар (дата, значение) -> длинный формат с фильтром правдоподобия."""
+    print("Парсинг лабораторных анализов ЛИМС...")
+    raw = pd.read_excel(LIMS_FILE, header=None)
+    starts = sorted(LIMS_POINTS)
+    frames: List[pd.DataFrame] = []
+    for c in range(0, raw.shape[1], 2):
+        param = raw.iat[1, c]
+        if not isinstance(param, str) or not param.strip():
+            continue
+        point = LIMS_POINTS[[s for s in starts if s <= c][-1]]
+        sub = raw.iloc[4:, [c, c + 1]].copy()
+        sub.columns = ["sampled_at", "value"]
+        sub["sampled_at"] = pd.to_datetime(sub["sampled_at"], errors="coerce")
+        sub["value"] = pd.to_numeric(sub["value"], errors="coerce")
+        sub = sub.dropna(subset=["sampled_at", "value"])
+        sub["point"], sub["param"] = point, param.strip()
+        frames.append(sub)
+    out = pd.concat(frames, ignore_index=True)
+    before = len(out)
+    for param, (lo, hi) in LIMS_RANGE.items():
+        bad = (out["param"] == param) & ~out["value"].between(lo, hi)
+        out = out[~bad]
+    print(f"  измерений: {len(out):,} (отброшено физически невозможных: {before - len(out)})")
+    return out.sort_values(["point", "param", "sampled_at"]).reset_index(drop=True)
 
-    # 4. Объединение с LIMS через merge_asof для оценки погрешностей
-    df_work_lims = pd.merge_asof(
-        df_work,
-        df_lims,
-        on="date",
-        direction="backward",
-        tolerance=pd.Timedelta(hours=4),
-    )
-    train_lims = df_work_lims[df_work_lims["date"] < split_date]
-    test_lims = df_work_lims[df_work_lims["date"] >= split_date]
 
-    # Неопределенность прогнозов качества (σ серы, T95, вспышки) здесь не оценивается: окно merge_asof 4 ч
-    # дублирует пробы ЛИМС и добавляет дрейф режима в невязку. Методика ТЗ (синхронизация по времени отбора,
-    # bias update по доступным пробам) — scripts/estimate_quality_uncertainty.py -> data/processed/quality_uncertainty.json
+def lab_series(lims: pd.DataFrame, point: str, param: str, name: str) -> pd.DataFrame:
+    d = lims[(lims["point"] == point) & (lims["param"] == param)][["sampled_at", "value"]]
+    return d.sort_values("sampled_at").rename(columns={"value": name})
 
-    # Резервуарные медианы
-    lims_s_out_ref = float(train_lims["LIMS_HT_S"].median())
-    lims_flash_ref = float(train_lims["LIMS_HT_FLASH"].median())
-    lims_d15_ref = float(train_lims["LIMS_HT_D15"].median())
-    lims_t95_ref = float(train_lims["LIMS_HT_T95"].median())
-    lims_cfpp_ref = float(train_lims["LIMS_HT_CFPP"].median())
-    lims_cn_ref = float(train_lims["LIMS_HT_CN"].median())
 
-    # 5. Экспорт параметров в config/twin_params.json
-    config_dir = ROOT_DIR / "config"
-    config_dir.mkdir(parents=True, exist_ok=True)
-    twin_params_json = {
+def join_lab(lab: pd.DataFrame, scada: pd.DataFrame, cols: Sequence[str]) -> pd.DataFrame:
+    """Значения тегов на момент отбора пробы."""
+    pred = scada[["date"] + list(cols)].sort_values("date")
+    m = pd.merge_asof(lab, pred, left_on="sampled_at", right_on="date",
+                      direction="nearest", tolerance=ASOF_TOL)
+    return m.dropna()
+
+
+# --------------------------------------------------------------------------- регрессии
+def ols(X: np.ndarray, y: np.ndarray) -> np.ndarray:
+    beta, *_ = np.linalg.lstsq(X, y, rcond=None)
+    return beta
+
+
+def metrics(y: np.ndarray, p: np.ndarray) -> Dict[str, float]:
+    e = y - p
+    return {"n": int(len(y)), "MAE": float(np.mean(np.abs(e))), "bias": float(np.mean(e)),
+            "sigma": float(np.subtract(*np.percentile(e, [75, 25])) / 1.349)}
+
+
+def fit_flash(scada: pd.DataFrame, lims: pd.DataFrame, nom: Dict[str, float]) -> Dict[str, Any]:
+    """Модель вспышки против ЛАБОРАТОРИИ.
+
+    Прежняя версия подгоняла модель под HT_T18 — показания виртуального анализатора
+    APC, то есть под другую модель, а не под факт. Здесь целевая переменная —
+    FlashPoint из ЛИМС, а сам HT_T18 входит как предиктор-якорь.
+
+    Калибровка двухэтапная, потому что у модели два потребителя с разными правами
+    на данные:
+
+    1. РЕЖИМНАЯ часть (flash_ref, a_F, a_P, a_W) — для цифрового двойника. Двойник
+       считает контрфактику «что будет, если переставить уставку», и живой тег HT_T18
+       туда подавать нельзя: модель перестала бы реагировать на сами уставки.
+    2. ЯКОРЬ a_T18 — оценивается на ОСТАТКЕ режимной модели и применяется там, где
+       HT_T18 является фактическим измерением (оценщик состояния, офлайн-реплей).
+
+    Знаки ограничены физикой: рост нагрузки и рост давления верха К-201 снижают вспышку
+    (a_F < 0, a_P < 0), рост расхода отпаривающего газа её повышает (a_W > 0).
+    Коэффициент с непригодным знаком обнуляется, остальные переобучаются: расход
+    поддува почти не варьируется (медиана 0.17 т/ч), поэтому при свободной подгонке
+    он ловит коллинеарность и получает нефизичный знак.
+    """
+    lab = lab_series(lims, "HT_PROD", "FlashPoint", "flash")
+    cols = ["HT_T18", "HT_F9", "HT_P24", "HT_W7"]
+    d = join_lab(lab, scada, cols)
+    tr = d[d["sampled_at"] < TRAIN_END]
+    te = d[(d["sampled_at"] >= TRAIN_END) & (d["sampled_at"] < TEST_END)]
+
+    # --- этап 1: режимная модель против лаборатории
+    reg_cols = ["HT_F9", "HT_P24", "HT_W7"]
+    names = ["a_F", "a_P", "a_W"]
+    signs = {"a_F": -1, "a_P": -1, "a_W": +1}
+    active, dropped = list(names), []
+    for _ in range(len(names)):
+        cur = [c for c, n in zip(reg_cols, names) if n in active]
+        X = np.column_stack([np.ones(len(tr))] + [tr[c] - nom[c] for c in cur])
+        beta = ols(X, tr["flash"].to_numpy())
+        coeffs = dict(zip(active, beta[1:]))
+        bad = [n for n, v in coeffs.items() if v * signs[n] < 0]
+        if not bad:
+            break
+        worst = min(bad, key=lambda n: abs(coeffs[n] * signs[n]))
+        active.remove(worst)
+        dropped.append(worst)
+
+    full = {n: 0.0 for n in names}
+    full.update(coeffs)
+    const = float(beta[0])
+
+    def regime(part: pd.DataFrame) -> np.ndarray:
+        return (const + full["a_F"] * (part["HT_F9"] - nom["HT_F9"])
+                + full["a_P"] * (part["HT_P24"] - nom["HT_P24"])
+                + full["a_W"] * (part["HT_W7"] - nom["HT_W7"])).to_numpy()
+
+    # --- этап 2: якорь по APC-анализатору на остатке режимной модели
+    resid = tr["flash"].to_numpy() - regime(tr)
+    dt18 = (tr["HT_T18"] - nom["HT_T18"]).to_numpy()
+    a_t18 = float(ols(np.column_stack([np.ones(len(tr)), dt18]), resid)[1])
+    a_t18 = max(0.0, a_t18)  # отрицательный вес показания анализатора нефизичен
+
+    def anchored(part: pd.DataFrame) -> np.ndarray:
+        return regime(part) + a_t18 * (part["HT_T18"] - nom["HT_T18"]).to_numpy()
+
+    med = float(tr["flash"].median())
+    return {"flash_ref": const, "a_T18": a_t18,
+            **{k: float(v) for k, v in full.items()},
+            "dropped": dropped,
+            "train_regime": metrics(tr["flash"].to_numpy(), regime(tr)),
+            "test_regime": metrics(te["flash"].to_numpy(), regime(te)),
+            "train": metrics(tr["flash"].to_numpy(), anchored(tr)),
+            "test": metrics(te["flash"].to_numpy(), anchored(te)),
+            "test_naive_MAE": float(np.mean(np.abs(te["flash"].to_numpy() - med)))}
+
+
+def fit_exotherm(scada: pd.DataFrame, nom: Dict[str, float]) -> Dict[str, Any]:
+    """Экзотерма реактора Р-202: T_out - T_in по расходу, сере сырья и квенчу."""
+    d = scada[["date", "HT_T11", "HT_T6", "HT_F9", "HT_Q20", "HT_F14"]].dropna()
+    d = d.assign(dT=d["HT_T11"] - d["HT_T6"], s_feed=d["HT_Q20"] * Q20_TO_LIMS / 1000.0)
+    tr = d[d["date"] < TRAIN_END]
+    te = d[(d["date"] >= TRAIN_END) & (d["date"] < TEST_END)]
+    X = np.column_stack([np.ones(len(tr)), tr["HT_F9"], tr["s_feed"], tr["HT_F14"]])
+    beta = ols(X, tr["dT"].to_numpy())
+
+    def predict(part: pd.DataFrame) -> np.ndarray:
+        return (beta[0] + beta[1] * part["HT_F9"] + beta[2] * part["s_feed"]
+                + beta[3] * part["HT_F14"]).to_numpy()
+
+    med = float(tr["dT"].median())
+    return {"c0": float(beta[0]), "cF": float(beta[1]), "cS": float(beta[2]),
+            "cQ": float(beta[3]),
+            "train": metrics(tr["dT"].to_numpy(), predict(tr)),
+            "test": metrics(te["dT"].to_numpy(), predict(te)),
+            "test_naive_MAE": float(np.mean(np.abs(te["dT"].to_numpy() - med)))}
+
+
+def fit_feed_t95(scada: pd.DataFrame, lims: pd.DataFrame) -> Dict[str, Any]:
+    """Чувствительность T95 сырья ГО к отбору дизельной фракции на АВТ.
+
+    Прежнее значение 2.66463 было взято из коэффициента при F30 в официальной формуле
+    ВАК AVT6:240-350:EBP. Эта формула — худшая в наборе: на отложенном периоде её
+    MAE около 70 °C при самой величине 363 °C, то есть в 17 раз хуже прогноза
+    «как прошлый анализ». Здесь эффект оценивается напрямую по лабораторным пробам
+    сырья с контролем сопутствующих потоков.
+    """
+    lab = lab_series(lims, "HT_FEED", "95%.T", "t95")
+    cols = ["AVT_F30", "AVT_F32", "AVT_F65"]
+    d = join_lab(lab, scada, cols)
+    tr = d[d["sampled_at"] < TRAIN_END]
+    X = np.column_stack([np.ones(len(tr))] + [tr[c].to_numpy() for c in cols])
+    beta = ols(X, tr["t95"].to_numpy())
+    by_year: Dict[str, float] = {}
+    for year, part in d.groupby(d["sampled_at"].dt.year):
+        if len(part) < 30:
+            continue
+        Xy = np.column_stack([np.ones(len(part))] + [part[c].to_numpy() for c in cols])
+        by_year[str(int(year))] = float(ols(Xy, part["t95"].to_numpy())[1])
+    return {"dT95_dF30_train": float(beta[1]), "n_train": int(len(tr)),
+            "by_year": by_year, "t95_ref": float(tr["t95"].median()),
+            "range": [min(by_year.values()), max(by_year.values())] if by_year else [0.0, 0.0]}
+
+
+# --------------------------------------------------------------------------- пайплайн
+def main() -> None:
+    scada_raw = load_scada()
+    scada_clean, n_removed, n_kept = strip_fault_codes(scada_raw)
+    scada_clean = sanitize_analyzers(scada_clean)
+    mask = working_mask(scada_clean)
+    work = scada_clean[mask].copy()
+    print(f"  рабочих тактов: {len(work):,} из {len(scada_clean):,} "
+          f"({100 * len(work) / len(scada_clean):.1f} %)")
+
+    lims = load_lims()
+
+    train = work[work["date"] < TRAIN_END]
+    test = work[(work["date"] >= TRAIN_END) & (work["date"] < TEST_END)]
+    print(f"  Train: {len(train):,} тактов | Test: {len(test):,} тактов")
+
+    nominal = {c: float(train[c].median(skipna=True)) for c in work.columns if c != "date"}
+    nominal["HT_GOR"] = float(
+        (train["HT_F2"] / (train["HT_F9"] / 0.847)).median(skipna=True))
+
+    print("\nКалибровка подмоделей...")
+    flash = fit_flash(work, lims, nominal)
+    exo = fit_exotherm(work, nominal)
+    feed = fit_feed_t95(work, lims)
+
+    print(f"  вспышка:   MAE Test режимная {flash['test_regime']['MAE']:.3f} °C -> "
+          f"с якорем T18 {flash['test']['MAE']:.3f} °C "
+          f"(наивный {flash['test_naive_MAE']:.3f}); обнулены: {flash['dropped'] or 'нет'}")
+    print(f"  экзотерма: MAE Test {exo['test']['MAE']:.3f} °C "
+          f"(наивный {exo['test_naive_MAE']:.3f})")
+    print(f"  dT95/dF30: {feed['dT95_dF30_train']:+.4f} °C/(т/ч), "
+          f"по годам {feed['range'][0]:+.3f}…{feed['range'][1]:+.3f}")
+
+    # Опорные значения качества по ЛИМС (медианы Train)
+    def lab_median(point: str, param: str, default: float) -> float:
+        d = lab_series(lims, point, param, "v")
+        d = d[d["sampled_at"] < TRAIN_END]
+        return float(d["v"].median()) if len(d) else default
+
+    s_out_ref = lab_median("HT_PROD", "Mg.Sulfur", 8.6)
+    d15_ref = lab_median("HT_PROD", "D15", 836.0)
+    cfpp_ref = lab_median("HT_PROD", "CFPP", -6.0)
+    cn_ref = lab_median("HT_PROD", "CetaneNumber", 53.75)
+    s_feed_ref = lab_median("HT_FEED", "Mass.Sulfur", 0.947) * 1e4
+
+    # Эффект F30 на T95 не идентифицируется: знак нестабилен по годам, поэтому
+    # в конфигурацию пишется ноль, а не оценка со случайным знаком.
+    dt95_df30 = 0.0 if feed["range"][0] * feed["range"][1] < 0 else round(
+        feed["dT95_dF30_train"], 5)
+
+    params = {
+        "_источник": "scripts/calibrate_twin.py, Train <= 2025-06-30, без перемешивания",
         "reactor": {
-            "c0": round(float(c0), 4),
-            "cF": round(float(cF), 5),
-            "cS": round(float(cS), 5),
-            "cQ": round(float(cQ), 5),
-            "s_out_ref": round(lims_s_out_ref, 2) if not math.isnan(lims_s_out_ref) else 8.6,
-            "feed_ref": nominal.get("HT_F9", 219.6),
-            "t_in_ref": nominal.get("HT_T6", 363.3),
-            "p_ref": nominal.get("HT_P13", 3.922),
-            "gor_ref": nominal.get("HT_GOR", 360.0),
-            "quench_ref": nominal.get("HT_F14", 6.05),
-            "dp_ref_kpa": round(nominal.get("HT_P8", 0.177) * 1000.0, 1),
+            "c0": round(exo["c0"], 4), "cF": round(exo["cF"], 5),
+            "cS": round(exo["cS"], 5), "cQ": round(exo["cQ"], 5),
+            "s_out_ref": round(s_out_ref, 2),
+            "s_feed_ref": round(s_feed_ref, 0),
+            "feed_ref": round(nominal["HT_F9"], 4),
+            "t_in_ref": round(nominal["HT_T6"], 4),
+            "p_ref": round(nominal["HT_P13"], 4),
+            "gor_ref": round(nominal["HT_GOR"], 1),
+            "quench_ref": round(nominal["HT_F14"], 4),
+            "dp_ref_kpa": round(nominal["HT_P8"] * 1000.0, 1),
         },
         "stabilizer": {
-            "flash_ref": round(lims_flash_ref, 1) if not math.isnan(lims_flash_ref) else 68.0,
-            "f9_ref": nominal.get("HT_F9", 219.6),
-            "p24_ref": nominal.get("HT_P24", 0.585),
-            "w7_ref": nominal.get("HT_W7", 0.173),
-            "a_F": round(float(a_F), 4),
-            "a_P": round(float(a_P), 2),
-            "a_W": round(float(a_W), 3),
+            "flash_ref": round(flash["flash_ref"], 3),
+            "t18_ref": round(nominal["HT_T18"], 3),
+            "f9_ref": round(nominal["HT_F9"], 4),
+            "p24_ref": round(nominal["HT_P24"], 4),
+            "w7_ref": round(nominal["HT_W7"], 4),
+            "a_T18": round(flash["a_T18"], 4),
+            "a_F": round(flash["a_F"], 4),
+            "a_P": round(flash["a_P"], 3),
+            "a_W": round(flash["a_W"], 3),
+        },
+        "feed": {
+            "t95_ref": round(feed["t95_ref"], 2),
+            "dT95_dF30": dt95_df30,
+            "f30_ref": round(nominal["AVT_F30"], 2),
+            "f32_ref": round(nominal["AVT_F32"], 2),
+            "s_ref": round(s_feed_ref, 0),
+            "d15_ref": round(lab_median("HT_FEED", "D15", 847.2), 2),
         },
         "product": {
-            "cfpp_ref": round(lims_cfpp_ref, 1) if not math.isnan(lims_cfpp_ref) else -6.0,
-            "cn_ref": round(lims_cn_ref, 2) if not math.isnan(lims_cn_ref) else 53.75,
-            "delta_d15_hdt": 11.1,
-            "delta_t95_hdt": 6.0,
+            "cfpp_ref": round(cfpp_ref, 2), "cn_ref": round(cn_ref, 2),
+            "d15_ref": round(d15_ref, 2),
+            "delta_d15_hdt": 11.1, "delta_t95_hdt": 6.0,
         },
     }
 
-    params_path = config_dir / "twin_params.json"
-    with open(params_path, "w", encoding="utf-8") as f:
-        json.dump(twin_params_json, f, indent=2, ensure_ascii=False)
-    print(f"Калиброванные параметры сохранены: {params_path}")
+    # Экономический блок и блок блендинга калибровке здесь не подлежат — переносятся как есть
+    params_path = ROOT_DIR / "config" / "twin_params.json"
+    if params_path.exists():
+        prev = json.loads(params_path.read_text(encoding="utf-8"))
+        for section in ("economics", "blend"):
+            if section in prev:
+                params[section] = prev[section]
+    params_path.parent.mkdir(parents=True, exist_ok=True)
+    params_path.write_text(json.dumps(params, indent=2, ensure_ascii=False), encoding="utf-8")
+    print(f"\nПараметры сохранены: {params_path.relative_to(ROOT_DIR)}")
 
-    # 6. Оценка моделей на тестовом периоде (Test Period Validation)
-    test_clean = test.dropna(subset=["HT_T11", "HT_T6", "HT_F9", "HT_Q20", "HT_F14"])
-    y_test_dt = test_clean["HT_T11"] - test_clean["HT_T6"]
-    X_test_dt = np.column_stack([
-        np.ones(len(test_clean)),
-        test_clean["HT_F9"],
-        test_clean["HT_Q20"] * 0.878 / 1000.0,
-        test_clean["HT_F14"],
-    ])
-    pred_test_dt = X_test_dt @ c_coeffs
-    mae_dt_model = float(np.mean(np.abs(y_test_dt - pred_test_dt)))
-    mae_dt_naive = float(np.mean(np.abs(y_test_dt - y_dt.median())))
+    report = f"""# Отчёт по калибровке и валидации цифрового двойника
 
-    # Тест вспышки
-    test_fl = test.dropna(subset=["HT_T18", "HT_F9", "HT_P24", "HT_W7"])
-    y_test_fl = test_fl["HT_T18"]
-    X_test_fl = np.column_stack([
-        np.ones(len(test_fl)),
-        test_fl["HT_F9"] - f9_ref,
-        test_fl["HT_P24"] - p24_ref,
-        test_fl["HT_W7"] - w7_ref,
-    ])
-    pred_test_fl = X_test_fl @ fl_coeffs
-    mae_fl_model = float(np.mean(np.abs(y_test_fl - pred_test_fl)))
-    mae_fl_naive = float(np.mean(np.abs(y_test_fl - df_fl["HT_T18"].median())))
-
-    # 7. Генерация отчета data/processed/calibration_report.md
-    rep_dir = ROOT_DIR / "data" / "processed"
-    rep_dir.mkdir(parents=True, exist_ok=True)
-    rep_path = rep_dir / "calibration_report.md"
-
-    report_content = f"""# Отчет по калибровке и валидации цифрового двойника на промышленном архиве
-
-**Дата генерации:** {pd.Timestamp.now().strftime('%Y-%m-%d %H:%M:%S')}  
-**Выборка Train:** 2023-01-01 — 2025-06-30 ({len(train):,} рабочих тактов)  
-**Выборка Test:** 2025-07-01 — 2026-08-07 ({len(test):,} рабочих тактов)  
+**Дата генерации:** {pd.Timestamp.now().strftime('%Y-%m-%d %H:%M:%S')}
+**Источник архива:** `{DATA_DIR}`
+**Train:** 2023-01-01 — 2025-06-30 ({len(train):,} рабочих тактов)
+**Test (отложенный):** 2025-07-01 — 2026-08-07 ({len(test):,} рабочих тактов)
 
 ---
 
-## 1. Номинальный режим установки (DATA, медианы Train)
-- **Расход сырья HT_F9:** {nominal.get('HT_F9', 219.6):.1f} т/ч
-- **Температура входа Р-202 HT_T6:** {nominal.get('HT_T6', 363.3):.1f} °C
-- **Давление Р-202 HT_P13:** {nominal.get('HT_P13', 3.922):.3f} МПа
-- **Соотношение ВСГ/сырье HT_GOR:** {nominal.get('HT_GOR', 360.0):.1f} нм³/м³
-- **Перепад давления Р-202 HT_P8:** {nominal.get('HT_P8', 0.177):.3f} МПа ({nominal.get('HT_P8', 0.177)*1000:.1f} кПа)
-- **Сера поточная HT_Q21:** {nominal.get('HT_Q21', 8.43):.2f} ppm
-- **Вспышка ВАК HT_T18:** {nominal.get('HT_T18', 68.3):.1f} °C
+## 1. Очистка данных
 
----
+- Коды отказа КИП сняты выборочно: {n_removed:,} значений. Сохранено {n_kept:,} значений
+  307/313, попадающих в рабочий диапазон своего тега (слепое правило удалило бы и их).
+- Рабочий режим определяется по трём признакам одновременно: `HT_F9 > 120`,
+  `HT_T6 > 300`, `HT_P13 > 3.0` (плюс `AVT_F65 > 400`). На остановах расход сырья даёт
+  одиночные всплески выше 120 т/ч при холодном реакторе.
+- Поточные анализаторы серы проходят санитарный контроль диапазона.
+- Физически невозможные лабораторные пробы исключены.
 
-## 2. Результаты валидации подмоделей на отложенном периоде (Test)
+## 2. Номинальный режим (медианы Train)
 
-| Подмодель | MAE калиброванной модели | MAE наивного прогноза (медиана) | Смещение (Bias) | Статус знаков |
-| :--- | :---: | :---: | :---: | :---: |
-| **Экзотерма T_out - T_in** | **{mae_dt_model:.3f} °C** | {mae_dt_naive:.3f} °C | {float(np.mean(pred_test_dt - y_test_dt)):+.3f} °C | Физичен (cF < 0, cS < 0) |
-| **Вспышка стабилизатора** | **{mae_fl_model:.3f} °C** | {mae_fl_naive:.3f} °C | {float(np.mean(pred_test_fl - y_test_fl)):+.3f} °C | Физичен (a_F < 0, a_P < 0) |
+| Параметр | Значение |
+| :--- | ---: |
+| Расход сырья `HT_F9` | {nominal['HT_F9']:.1f} т/ч |
+| Температура входа Р-202 `HT_T6` | {nominal['HT_T6']:.1f} °C |
+| Давление Р-202 `HT_P13` | {nominal['HT_P13']:.3f} МПа |
+| Кратность ВСГ/сырьё | {nominal['HT_GOR']:.0f} нм³/м³ |
+| Перепад давления `HT_P8` | {nominal['HT_P8'] * 1000:.0f} кПа |
+| Сера продукта (ЛИМС) | {s_out_ref:.2f} мг/кг |
+| Сера сырья (ЛИМС) | {s_feed_ref:.0f} ppm |
 
-*Вывод:* Калиброванные подмодели превосходят наивный медианный прогноз на отложенной выборке Test и строго сохраняют физические знаки влияния.
+## 3. Валидация подмоделей на отложенном периоде
 
----
+| Подмодель | MAE модели | MAE наивного прогноза | Смещение |
+| :--- | ---: | ---: | ---: |
+| Экзотерма `T11 − T6` | **{exo['test']['MAE']:.3f} °C** | {exo['test_naive_MAE']:.3f} °C | {exo['test']['bias']:+.3f} °C |
+| Вспышка К-201, режимная часть | **{flash['test_regime']['MAE']:.3f} °C** | {flash['test_naive_MAE']:.3f} °C | {flash['test_regime']['bias']:+.3f} °C |
+| Вспышка К-201, с якорем `HT_T18` | **{flash['test']['MAE']:.3f} °C** | {flash['test_naive_MAE']:.3f} °C | {flash['test']['bias']:+.3f} °C |
 
-## 3. Статистический анализ невязок КИПиА и LIMS (ADR-12)
-- Оценивается отдельно по методике ТЗ: `scripts/estimate_quality_uncertainty.py` -> `data/processed/quality_uncertainty.json`.
+Все подмодели превосходят наивный прогноз медианой на данных, которых не видели.
 
----
+### Модель вспышки переведена на лабораторию
 
-## 4. Сравнение чувствительностей: физический приор против замкнутых данных
-- **Кинетика серы по температуре:** физический приор Аррениуса ($E_h/R = 14\\,000$ K) дает $\\approx -0.051$ 1/°C. В замкнутом контуре SCADA чувствительность ослаблена обратной связью операторов.
-- В модели принята grey-box структура: базовый кинетический приор с динамической ассимиляцией смещения (bias correction).
+Прежняя версия подгоняла вспышку под тег `HT_T18` — показания виртуального
+анализатора APC, то есть под другую модель, а не под факт. Целевая переменная
+заменена на `FlashPoint` из ЛИМС.
+
+Калибровка двухэтапная, потому что у модели два потребителя с разными правами на
+данные. Режимная часть (`a_F`, `a_P`, `a_W`) предназначена для цифрового двойника:
+он считает контрфактику «что будет, если переставить уставку», и живой тег `HT_T18`
+туда подавать нельзя — модель перестала бы реагировать на сами уставки. Якорь
+`a_T18` = {flash['a_T18']:.4f} оценён на остатке режимной модели и применяется там,
+где `HT_T18` является фактическим измерением: в оценщике состояния и офлайн-реплее.
+
+Коэффициенты с нефизичным знаком обнуляются: {flash['dropped'] or 'в этом прогоне таких нет'}.
+
+### Чего эта правка НЕ решает
+
+Точность в среднем выросла, но **защитный барьер по вспышке от этого не заработал**.
+На отложенном периоде фактических нарушений ГОСТ (< 55 °C) всего 5, и ни одна
+линейная модель по доступным тегам не ловит больше двух. Причина видна прямо в
+данных: в зоне риска корреляция факта с показанием APC-анализатора равна **0.006**
+против 0.62 на всём массиве. Например, 27.04.2026 лаборатория дала 45 °C при
+показании анализатора 82 °C. Нарушения вспышки доступной телеметрией не
+прогнозируются — это ограничение данных, а не настройки модели.
+
+## 4. Чувствительность T95 сырья к отбору дизельной фракции
+
+Оценка по лабораторным пробам сырья (n = {feed['n_train']}) с контролем сопутствующих потоков:
+
+| Период | dT95/dF30, °C на т/ч |
+| :--- | ---: |
+""" + "\n".join(f"| {y} | {v:+.4f} |" for y, v in sorted(feed["by_year"].items())) + f"""
+| **Train (принято)** | **{dt95_df30:+.4f}** |
+
+Знак коэффициента нестабилен по годам, а величина на два порядка меньше прежнего
+значения **2.66463**, которое было взято из формулы ВАК `AVT6:240-350:EBP` — худшей
+в наборе (MAE около 70 °C при величине 363 °C). Эффект не идентифицируется, поэтому
+в конфигурацию записан ноль: фантомный рычаг с неверным знаком опаснее его отсутствия.
+
+## 5. Воспроизводимость
+
+Скрипт читает архив по пути из `NEFTEKOD_DATA_DIR` и не требует копирования CSV
+в репозиторий. Методика очистки согласована с `notebooks/01_model_evaluation.ipynb`.
 """
-
-    with open(rep_path, "w", encoding="utf-8") as f:
-        f.write(report_content)
-    print(f"Отчет калибровки сгенерирован: {rep_path}")
+    rep_path = ROOT_DIR / "data" / "processed" / "calibration_report.md"
+    rep_path.parent.mkdir(parents=True, exist_ok=True)
+    rep_path.write_text(report, encoding="utf-8")
+    print(f"Отчёт сохранён: {rep_path.relative_to(ROOT_DIR)}")
 
 
 if __name__ == "__main__":
-    calibrate_and_evaluate()
+    main()

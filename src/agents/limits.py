@@ -50,9 +50,16 @@ BLEND_CETANE_MIN: float = 51.5
 # Статистика качества (ADR-12).
 # Перемаркировано согласно implementation_plan_v3.md: z=2 -> POLICY (alpha_quality=0.0228)
 QUALITY_Z: float = 2.0
-SIGMA_S0_PPM: float = 0.83  # DATA: HT_Q21 + bias vs ЛИМС
-SIGMA_FLASH_C: float = 4.78  # DATA: HT_T18 + bias vs ЛИМС
-SIGMA_T95_C: float = 3.27  # DATA: ВАК 24-2000:GODT:T95 + bias
+# DATA: notebooks/01_model_evaluation.ipynb §6.2 -> data/processed/quality_uncertainty.json.
+# Робастная оценка IQR/1.349 остатков nowcast на Train (<= 2025-06-30) с вычитанием
+# медианного sigma_calib, чтобы вклад калибровки не учитывался дважды.
+# Значения согласованы с estimation.SIGMA_PAK_LOG и estimation.LINEAR_PROP_CONFIG:
+# для серы это та же sigma в лог-домене (0.11564), пересчитанная в мг/кг при
+# номинальной концентрации 8.5 мг/кг. Прежние 0.83 / 4.78 / 3.27 занижали интервал
+# и были получены отсутствующим в репозитории scripts/estimate_quality_uncertainty.py.
+SIGMA_S0_PPM: float = 1.042   # DATA: 8.5 * (exp(0.11564) - 1)
+SIGMA_FLASH_C: float = 3.85   # DATA
+SIGMA_T95_C: float = 4.95     # DATA
 SULFUR_LEGACY_VETO: float = 9.5
 
 GIVEAWAY_Z: float = 3.31

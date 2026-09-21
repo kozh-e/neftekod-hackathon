@@ -50,7 +50,7 @@ Main source code for the MES/APC system.
   - `decision_store.py`: SQLite and JSONL persistence backend (`DecisionStore`, `save_decision_trace`) for immutable execution traces.
   - `graph.py`: «Детерминированный граф переговоров v3 (`build_core_graph`, `get_graph`). `build_mvp_graph()` удалён (ADR-26 завершён). Единственный режим исполнения — `core_v3`.»
   - `blending.py`: 3-component tank blending LP optimizer with inventory constraints, `build_blend_problem()`, `solve_elastic()` hierarchical slack relaxation (`INFEASIBLE_ELASTIC`), `godt_prices()` finite-difference shadow pricing, `certify_blend()`, and backward-compatible `solve_recipe()`.
-  - `lims.py`: LIMS delay compensator (retrospective error, exponential bias decay $T_{1/2} = 12$ h, first-order filter $\tau = 30$ min, defaults aligned with ADR-12 constants $z = 2$, $\sigma_{S0} = 0.83$ ppm) and `lims_age_from_state()` helper.
+  - `lims.py`: LIMS delay compensator (retrospective error, exponential bias decay $T_{1/2} = 12$ h, first-order filter $\tau = 30$ min, defaults aligned with ADR-12 constants $z = 2$, $\sigma_{S0} = 1.042$ ppm) and `lims_age_from_state()` helper.
   - `data_guard.py`: Telemetry data validation (stuck sensors, missing values, critical tag clamping, confidence scoring, `assess_data`, degradation ladder).
   - `anti_windup.py`: Anti-windup protection for control setpoints.
 
@@ -113,7 +113,7 @@ Offline calibration, scenario replay, and validation tools.
 - `scripts/calibrate_twin.py`: Offline grey-box model calibration on historical train/test split.
 - `scripts/replay_scenarios.py`: Full closed-loop replay harness executing scenarios S1–S8 on `PlantSimulator` v2, saving `data/processed/final_kpis.json` and printing §15 KPI comparison table.
 - `scripts/demo_v3.py`: Interactive console demonstration for the hackathon jury covering the 5 key stories from TZ §6 (S1 normal, S2 quality risk, S3 data degradation, S4 MAS consensus & kernel, S5 envelope recovery + LLM supervisor).
-- `scripts/estimate_quality_uncertainty.py`: TZ-method estimation of quality uncertainty (sulfur, T95, flash), furnace-to-draw response and giveaway boundary -> `data/processed/quality_uncertainty.json`.
+- `notebooks/01_model_evaluation.ipynb` §6.2: reproducible estimation of quality uncertainty (sulfur, T95, flash, D15, CFPP) -> `data/processed/quality_uncertainty.json`. Replaces the former `scripts/estimate_quality_uncertainty.py`, which was referenced but absent from the repository.
 
 ### config/
 Committed configuration and calibrated parameter stores.
