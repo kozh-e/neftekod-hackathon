@@ -14,6 +14,7 @@ from __future__ import annotations
 
 from collections import deque
 import datetime
+import logging
 import math
 from typing import Any, Deque, Dict, List, Mapping, Optional, Sequence, Tuple
 
@@ -30,18 +31,55 @@ from src.agents.policy import PolicyConfig
 
 # Статистические параметры калибровки серы в лог-домене (DATA, ADR-12)
 R_LIMS_LOG: float = 0.0025      # sigma_lims_rel ≈ 5% (дисперсия шума анализатора ЛИМС)
-SIGMA_PAK_LOG: float = 0.0965   # 0.83 ppm / 8.6 ppm ≈ 0.0965 (повторяемость поточного ПАК)
+# Повторяемость поточного ПАК в лог-домене. DATA: notebooks/01_model_evaluation.ipynb §6.2,
+# робастная оценка IQR/1.349 остатков nowcast на Train (<= 2025-06-30, n = 983) с вычитанием
+# медианного sigma_calib. Прежнее значение 0.0965 (0.83 ppm / 8.6 ppm) занижало интервал.
+SIGMA_PAK_LOG: float = 0.11564
 SIGMA_MODEL_LOG: float = 0.25   # относительная неопределенность сырой кинетической модели
 Q_DRIFT_LOG: float = 0.0005     # скорость дрейфа дисперсии калибровки в час
 
-# Неопределенности других показателей в линейном домене
+logger = logging.getLogger(__name__)
+
+# Отбраковка недостоверных проб ЛИМС (ADR-12).
+#
+# В архиве встречаются физически невозможные лабораторные значения: сера гидрогенизата
+# до 2120 мг/кг при спецификации 10 — это уровень СЫРЬЯ, то есть ошибка ввода или
+# перепутанная точка отбора. Без отбраковки одна такая проба сдвигает смещение Калмана
+# на порядки: R_LIMS_LOG мал, и коэффициент усиления близок к единице.
+#
+# ОТБРАКОВКА ИДЕТ ТОЛЬКО ПО ФИЗИЧЕСКОЙ ПРАВДОПОДОБНОСТИ, НЕ ПО СТАТИСТИКЕ.
+# Робастный статистический детектор (|x - медиана| > k * MAD) здесь применять нельзя:
+# показатели удерживаются регулятором в узком коридоре, поэтому MAD мал, и любое
+# ДЕЙСТВИТЕЛЬНОЕ отклонение режима выглядит аномалией. На архиве такой детектор
+# отбраковывал реальные пробы — серу 2.5 мг/кг и вспышку 54 C, то есть в том числе
+# фактическое нарушение ГОСТ. Выбрасывать измерения, ради обнаружения которых система
+# и построена, недопустимо: это скрывает нарушение, а не фильтрует шум.
+#
+# Границы заданы по физике потока и требованиям ГОСТ 32511-2013 с большим запасом:
+# отсекается только то, что не может быть результатом анализа данного потока.
+LIMS_PLAUSIBLE_RANGE: Dict[str, Tuple[float, float]] = {
+    "S":     (0.01, 100.0),    # мг/кг. Глубокая ГО дает единицы; 100+ — это сера сырья
+    "FLASH": (20.0, 130.0),    # °C, температура вспышки в закрытом тигле
+    "T95":   (150.0, 420.0),   # °C, 95 % выкипания дизельной фракции
+    "D15":   (650.0, 1000.0),  # кг/м3, плотность при 15 °C
+    "CFPP":  (-70.0, 40.0),    # °C, предельная температура фильтруемости
+    "CN":    (10.0, 90.0),     # цетановое число
+    "E360":  (0.0, 100.0),     # % об., доля выкипающего до 360 °C
+}
+
+# Неопределенности других показателей в линейном домене.
+# sigma_meas для FLASH, T95, D15 и CFPP: DATA, notebooks/01_model_evaluation.ipynb §6.2 —
+# робастная оценка IQR/1.349 остатков nowcast на Train (<= 2025-06-30) с вычитанием
+# медианного sigma_calib, чтобы вклад калибровки не учитывался дважды.
+# CN и E360 оставлены прежними: лабораторных данных для оценки нет (ЦЧ — 42 пробы за
+# 3.6 года, доли выкипания при 360 °C в ЛИМС нет вовсе).
 LINEAR_PROP_CONFIG = {
-    "FLASH": {"sigma_meas": 4.78, "drift_per_h": 0.05, "unit": "°C", "ref": "ГОСТ 32511-2013 / DATA"},
-    "T95": {"sigma_meas": 3.27, "drift_per_h": 0.04, "unit": "°C", "ref": "ВАК 24-2000 / DATA"},
-    "D15": {"sigma_meas": 1.20, "drift_per_h": 0.01, "unit": "кг/м3", "ref": "ГОСТ 32511-2013 / DATA"},
-    "CN": {"sigma_meas": 0.50, "drift_per_h": 0.005, "unit": "", "ref": "ГОСТ 32511-2013 / DATA"},
-    "CFPP": {"sigma_meas": 1.00, "drift_per_h": 0.01, "unit": "°C", "ref": "ГОСТ 32511-2013 / DATA"},
-    "E360": {"sigma_meas": 0.50, "drift_per_h": 0.005, "unit": "% об.", "ref": "ГОСТ 32511-2013 / DATA"},
+    "FLASH": {"sigma_meas": 3.85, "drift_per_h": 0.05, "unit": "°C", "ref": "ГОСТ 32511-2013 / DATA"},
+    "T95": {"sigma_meas": 4.95, "drift_per_h": 0.04, "unit": "°C", "ref": "ВАК 24-2000 / DATA"},
+    "D15": {"sigma_meas": 1.07, "drift_per_h": 0.01, "unit": "кг/м3", "ref": "ГОСТ 32511-2013 / DATA"},
+    "CN": {"sigma_meas": 0.50, "drift_per_h": 0.005, "unit": "", "ref": "ГОСТ 32511-2013 / ASSUMPTION"},
+    "CFPP": {"sigma_meas": 1.27, "drift_per_h": 0.01, "unit": "°C", "ref": "ГОСТ 32511-2013 / DATA"},
+    "E360": {"sigma_meas": 0.50, "drift_per_h": 0.005, "unit": "% об.", "ref": "ГОСТ 32511-2013 / ASSUMPTION"},
 }
 
 # Допустимый порог рассогласования при сверке MV
@@ -169,10 +207,56 @@ class StateEstimator:
             for prop, cfg in LINEAR_PROP_CONFIG.items()
         }
 
+        # Журнал отбракованных проб ЛИМС
+        self.rejected_lims: List[Dict[str, Any]] = []
+
+    @staticmethod
+    def _lims_implausible(sample: LimsSample) -> Optional[str]:
+        """
+        Проверка пробы ЛИМС на физическую правдоподобность.
+
+        Возвращает причину отбраковки или None, если проба принимается.
+        Отсекается только то, что не может быть результатом анализа данного потока:
+        нечисловое значение или выход за физические границы LIMS_PLAUSIBLE_RANGE.
+        Реальные отклонения режима, включая нарушения спецификации, проходят —
+        именно ради них система и работает.
+        """
+        value = sample.value
+        if value is None or math.isnan(value) or math.isinf(value):
+            return "нечисловое значение"
+        bounds = LIMS_PLAUSIBLE_RANGE.get(sample.prop)
+        if bounds is None:
+            return None
+        lo, hi = bounds
+        if value < lo or value > hi:
+            return f"вне физического диапазона [{lo:g}; {hi:g}]"
+        return None
+
     def process_lims_sample(self, sample: LimsSample, t_now: datetime.datetime) -> None:
         """
         Калибровка смещений ПАК и модели по пробе ЛИМС на момент ОТБОРА (sampled_at).
+
+        Физически невозможные пробы отбраковываются и в фильтры не попадают.
+        Факт отбраковки фиксируется в self.rejected_lims и в журнале: лабораторный
+        результат по ТЗ является контрольным фактом, и система не вправе игнорировать
+        его молча. Возраст калибровки при отбраковке не обновляется — sigma продолжает
+        расти, то есть поведение остаётся консервативным.
         """
+        reason = self._lims_implausible(sample)
+        if reason is not None:
+            self.rejected_lims.append({
+                "prop": sample.prop,
+                "value": float(sample.value) if sample.value is not None else None,
+                "sampled_at": sample.sampled_at,
+                "rejected_at": t_now,
+                "reason": reason,
+            })
+            logger.warning(
+                "Проба ЛИМС отбракована как недостоверная: %s = %.4g (отбор %s): %s",
+                sample.prop, sample.value, sample.sampled_at, reason,
+            )
+            return
+
         if sample.prop == "S":
             # 1. Поиск исторических значений ПАК и модели на момент отбора
             pak_then = self.buffer.pak_at(sample.sampled_at)
@@ -223,10 +307,20 @@ class StateEstimator:
         hist_entry: Dict[str, Any] = {
             "pak": pak_float if pak_quality == SignalQuality.GOOD else None,
             "model_raw": raw_s,
-            "FLASH": float(twin_raw_output.get("HT_FLASH", 68.0)),
-            "T95": float(twin_raw_output.get("HT_T95_PRODUCT", 347.0)),
-            "D15": float(twin_raw_output.get("HT_D15_PRODUCT", 836.0)),
         }
+        # В буфер пишутся ВСЕ показатели из LINEAR_PROP_CONFIG по тому же правилу
+        # поиска ключа, что и при расчете оценки ниже. Раньше здесь был жестко
+        # заданный список FLASH/T95/D15, из-за чего process_lims_sample не находил
+        # записи для CFPP, CN и E360 и молча пропускал их калибровку: смещение по
+        # этим показателям не исправлялось никогда.
+        for prop in LINEAR_PROP_CONFIG:
+            raw_prop = twin_raw_output.get(f"HT_{prop}_PRODUCT", twin_raw_output.get(f"HT_{prop}"))
+            if raw_prop is None:
+                continue
+            val = float(raw_prop)
+            if math.isnan(val) or math.isinf(val):
+                continue
+            hist_entry[prop] = val
         self.buffer.append(t_now, hist_entry)
 
         # 2. Обработка новых анализов ЛИМС

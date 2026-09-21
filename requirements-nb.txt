@@ -1,0 +1,12 @@
+# Зависимости исследовательского валидационного отчета notebooks/01_model_evaluation.ipynb
+# Установка:  python -m venv .venv && .venv/Scripts/pip install -r requirements-nb.txt -r requirements.txt
+numpy>=1.24,<2.0
+pandas>=2.0.0
+scipy>=1.11.0
+matplotlib>=3.7.0
+openpyxl>=3.1.0
+pyarrow>=14.0.0
+jupyter>=1.0.0
+ipykernel>=6.25.0
+nbformat>=5.9.0
+nbconvert>=7.8.0

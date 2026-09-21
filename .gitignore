@@ -12,3 +12,6 @@ __pycache__/
 data/decisions/
 .*.bkp
 *.bkp
+
+# Кэш валидационного ноутбука (parquet, ~75 МБ)
+data/processed/cache/

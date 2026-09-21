@@ -24,6 +24,7 @@ from src.agents.contracts import (
     Tier,
 )
 from src.agents.policy import PolicyConfig
+from src.twin.params import FeedLinkParams
 
 
 ENSEMBLE_PATH = Path(__file__).resolve().parent.parent.parent / "data" / "processed" / "furnace_ensemble.json"
@@ -49,17 +50,24 @@ def generate_furnace_ensemble(
     rng = np.random.default_rng(seed)
     scenarios: List[Dict[str, float]] = []
 
-    # Базовые номинальные коэффициенты отклика (FeedLinkParams)
+    # Базовые номинальные коэффициенты отклика берутся из FeedLinkParams, а не
+    # дублируются числом: иначе ансамбль незаметно расходится с калибровкой двойника.
+    feed_params = FeedLinkParams()
     nom_df30 = 0.15
     nom_df32 = 0.25
-    nom_dt95 = 2.66463
+    nom_dt95 = float(feed_params.dT95_dF30)
     nom_st95 = 0.005
+
+    # Границы dT95/dF30 по годам архива: +0.025…+0.233 (scripts/calibrate_twin.py).
+    # Прежние границы 1.5…4.0 соответствовали значению 2.66463, взятому из формулы
+    # ВАК AVT6:240-350:EBP — худшей в наборе; оно завышало эффект примерно в 39 раз.
+    dt95_lo, dt95_hi = 0.02, 0.24
 
     for i in range(size):
         # 20-25% вариация коэффициентов отклика
         df30 = float(np.clip(rng.normal(nom_df30, nom_df30 * 0.20), 0.05, 0.35))
         df32 = float(np.clip(rng.normal(nom_df32, nom_df32 * 0.20), 0.10, 0.45))
-        dt95 = float(np.clip(rng.normal(nom_dt95, nom_dt95 * 0.20), 1.5, 4.0))
+        dt95 = float(np.clip(rng.normal(nom_dt95, nom_dt95 * 0.20), dt95_lo, dt95_hi))
         st95 = float(np.clip(rng.normal(nom_st95, nom_st95 * 0.25), 0.002, 0.010))
 
         scenarios.append({

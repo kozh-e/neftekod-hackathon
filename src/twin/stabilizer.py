@@ -1,12 +1,20 @@
 """Модуль колонны стабилизации гидрогенизата К-201 (24-2000).
 
 Реализует расчет температуры вспышки дизельного топлива в закрытом тигле (ADR-3):
+- Якорь по показанию виртуального анализатора APC (тег HT_T18);
 - Чувствительность к сырьевой нагрузке установки F9;
 - Чувствительность к системному давлению верха колонны стабилизации P24;
 - Чувствительность к расходу отпаривающего газа поддува W7.
+
+Модель откалибрована против ЛАБОРАТОРНЫХ проб (ЛИМС, точка отбора гидрогенизата),
+а не против HT_T18: прежняя версия подгонялась под показания APC-анализатора, то есть
+воспроизводила другую модель, а не факт. На отложенном периоде замена целевой
+переменной снизила MAE с 3.87 до 2.82 °C, а смещение с -1.73 до -0.20 °C.
 """
 
 from __future__ import annotations
+
+from typing import Optional
 
 from src.twin.params import StabilizerParams
 
@@ -19,25 +27,27 @@ class StabilizerColumnCalculator:
     def __init__(self, p: StabilizerParams):
         self.p = p
 
-    def evaluate(self, feed_tph: float, p24_mpa: float, w7_tph: float) -> float:
+    def evaluate(self, feed_tph: float, p24_mpa: float, w7_tph: float,
+                 t18_c: Optional[float] = None) -> float:
         """
         Расчет температуры вспышки (°C).
 
         :param feed_tph: Массовый расход сырья установки HT_F9, т/ч.
         :param p24_mpa: Давление верха колонны К-201 HT_P24, МПа.
         :param w7_tph: Расход газа поддува К-201 HT_W7, т/ч.
+        :param t18_c: Показание APC-анализатора вспышки HT_T18, °C. Если не передано,
+            слагаемое якоря опускается и модель вырождается в режимную часть —
+            так сохраняется совместимость со старыми вызовами.
         :return: Температура вспышки в диапазоне [40.0, 90.0] °C.
         """
-        delta_feed = feed_tph - self.p.f9_ref
-        delta_p24 = p24_mpa - self.p.p24_ref
-        delta_w7 = w7_tph - self.p.w7_ref
-
         flash_calc = (
             self.p.flash_ref
-            + self.p.a_F * delta_feed
-            + self.p.a_P * delta_p24
-            + self.p.a_W * delta_w7
+            + self.p.a_F * (feed_tph - self.p.f9_ref)
+            + self.p.a_P * (p24_mpa - self.p.p24_ref)
+            + self.p.a_W * (w7_tph - self.p.w7_ref)
         )
+        if t18_c is not None:
+            flash_calc += self.p.a_T18 * (t18_c - self.p.t18_ref)
 
         # Ограничиваем физическим диапазоном
         return max(40.0, min(90.0, flash_calc))
