@@ -151,6 +151,16 @@ class TwinView:
         dp_factor = self.estimate.factors.get("HT_DP_KPA", 1.0) if self.estimate else 1.0
         s_factor = self.estimate.factors.get("GODT.S", 1.0) if self.estimate else 1.0
 
+        # Аддитивные поправки калибровки качества для FLASH/D15/T95/CFPP/CN (см. _apply_corrections);
+        # без них траектория/extrema расходятся со steady_state для этих показателей.
+        quality_bias: Dict[str, float] = {}
+        if self.estimate is not None:
+            for prop in ("FLASH", "D15", "T95", "CFPP", "CN"):
+                key = f"GODT.{prop}"
+                if key in self.estimate.quality:
+                    twin_tag = f"HT_{prop}" if prop == "FLASH" else f"HT_{prop}_PRODUCT"
+                    quality_bias[twin_tag] = self.estimate.factors.get(key, 0.0)
+
         corrected_traj: Dict[str, Tuple[float, ...]] = {}
         extrema: Dict[str, Tuple[float, float, int]] = {}
 
@@ -159,6 +169,8 @@ class TwinView:
                 vals_corr = [v * dp_factor for v in vals]
             elif k == "HT_S_PRODUCT":
                 vals_corr = [v * s_factor for v in vals]
+            elif k in quality_bias:
+                vals_corr = [v + quality_bias[k] for v in vals]
             else:
                 vals_corr = list(vals)
 

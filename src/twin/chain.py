@@ -16,9 +16,7 @@ from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple
 
 from src.twin.params import TwinParams
 from src.twin.tags import (
-    DERIVED,
     NOMINAL_OPERATING_POINT,
-    RHO_FEED_T_M3,
     fill_from_nominal,
     normalize_tags,
 )
@@ -168,7 +166,7 @@ class FullChainTwin:
         gor = filled.get("HT_GOR")
         if gor is None or math.isnan(gor):
             f2 = filled.get("HT_F2", 93309.0)
-            gor = f2 / max(f9 / RHO_FEED_T_M3, 1e-4)
+            gor = f2 / max(f9 / self.params.reactor.rho_feed_t_m3, 1e-4)
 
         self._u_current = {
             "HT_FEED_SP": f9,
@@ -362,7 +360,7 @@ class FullChainTwin:
         raw_t95 = self.fopdt_t95.value
         raw_dp = self.fopdt_dp.value
         raw_tout = self.fopdt_t_out.value
-        raw_s_feed = self.feed_link.steady_state(
+        raw_s_feed = self.feed_link.current_state(
             self._disturbances.get("AVT_F30", self.params.feed.f30_ref),
             self._disturbances.get("AVT_F32", self.params.feed.f32_ref),
             self._u_current["AVT_T55_SP"] - self._disturbances.get("AVT_T55", 381.7),

@@ -95,6 +95,17 @@ class FeedLink:
             d15_feed=d15_ss,
         )
 
+    def current_state(self, f30: float, f32: float, t55_dev: float = 0.0) -> FeedState:
+        """Текущее динамическое состояние (с учетом запаздывания и смешения), без advance
+        буферов - в отличие от step(). f_avt не буферизуется, поэтому пересчитывается мгновенно."""
+        f_avt, _, _, _ = self._calculate_instantaneous(f30, f32, t55_dev)
+        return FeedState(
+            avt_diesel_tph=f_avt,
+            t95_feed_c=self._t95_mix,
+            s_feed_ppm=self._s_mix,
+            d15_feed=self._d15_mix,
+        )
+
     def step(self, f30: float, f32: float, t55_dev: float = 0.0) -> FeedState:
         """Один шаг дискретной симуляции (dt_min)."""
         f_avt, t95_in, s_in, d15_in = self._calculate_instantaneous(f30, f32, t55_dev)

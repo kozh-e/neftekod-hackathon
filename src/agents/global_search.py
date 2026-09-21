@@ -4,19 +4,19 @@
 1. Target: оптимальная точка установившегося режима;
 2. solve(ctx) -> Target | None: многоточечный поиск оптимума установившегося режима:
    - SLSQP с запасным COBYLA;
-   - 16 точек Соболя (seed=0) + текущая точка + цель прошлого такта (тёплый старт);
-   - Шансовые ограничения установившегося режима;
-   - Ограничение по бюджету времени < 400 мс;
+   - 16 точек Соболя (seed=0) + текущая точка;
+   - Шансовые ограничения установившегося режима (T1/T2/T3);
+   - Детерминированный бюджет по числу стартовых точек (не зависит от wall-clock);
    - Проверка найденной точки теми же функциями ограничений;
 3. nearest_feasible(ctx) -> Target | None: поиск ближайшей допустимой точки
    min ||W(u - u0)||^2 при всех шансовых ограничениях (используется при нарушенном hold);
-4. move_towards(u0, u_target, mvs, policy, origin): масштабирование шага к цели с учетом max_move и T0.
+4. move_towards(u0, u_target, mvs, policy, origin): масштабирование шага к цели с учетом max_move,
+   T0 и режима CAUTIOUS (cautious_step_scale).
 """
 
 from __future__ import annotations
 
 import math
-import time
 from dataclasses import dataclass
 from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple
 import numpy as np
@@ -25,10 +25,10 @@ from scipy.stats import qmc
 
 from src.agents.anti_windup import apply_anti_windup
 from src.agents.candidates import DEFAULT_MVS, MVSpec
-from src.agents.contracts import Candidate, CandidateOrigin, ConstraintSpec, Tier
+from src.agents.contracts import AutomationLevel, Candidate, CandidateOrigin, ConstraintSpec, Tier
 from src.agents.generator import signature_of
 from src.agents.policy import PolicyConfig
-from src.agents.registry import ALL_SPECS, T1_SPECS, T2_SPECS, T3_SPECS
+from src.agents.registry import ALL_SPECS, BUFFER_LONG_RUN_RATIO_SPEC
 from src.agents.uncertainty import chance_effective
 
 
@@ -51,12 +51,49 @@ def _get_u0(ctx: Any, mvs: Sequence[MVSpec]) -> Dict[str, float]:
 def _get_applicable_specs(ctx: Any) -> List[ConstraintSpec]:
     specs = []
     for s in ALL_SPECS:
-        if s.tier in (Tier.T1_EQUIPMENT, Tier.T2_QUALITY):
+        if s.tier in (Tier.T1_EQUIPMENT, Tier.T2_QUALITY, Tier.T3_OPERATIONAL):
             specs.append(s)
+    if not any(s.key == "BUFFER.LONG_RUN_RATIO" for s in specs):
+        specs.append(BUFFER_LONG_RUN_RATIO_SPEC)
     return specs
 
 
+def _calc_buffer_slack(x_dict: Dict[str, float], spec: ConstraintSpec, ctx: Any) -> float:
+    """Слэк буферных ограничений T3 (см. SupplyAgent.certify — та же формула баланса)."""
+    twin_view = getattr(ctx, "twin_view", None)
+    if twin_view is None:
+        return 0.0
+    policy = getattr(ctx, "policy", None) or PolicyConfig()
+    estimate = getattr(ctx, "estimate", None)
+
+    h_plan = policy.h_plan_h
+    i_min, i_max = policy.buffer_bounds_t
+    i_current = float(getattr(ctx, "buffer_inventory_t", 0.0))
+
+    ss = twin_view.steady(x_dict)
+    f9_ss = ss.get("HT_F9", x_dict.get("HT_FEED_SP", 0.0))
+    f30 = ss.get("AVT_F30", estimate.disturbances.get("AVT_F30", 119.3) if estimate else 119.3)
+    f32 = ss.get("AVT_F32", estimate.disturbances.get("AVT_F32", 100.3) if estimate else 100.3)
+    f_avt = ss.get("AVT_DIESEL_TPH", f30 + f32)
+
+    i_future = i_current + (f_avt - f9_ss) * h_plan
+
+    if spec.key == "BUFFER.INVENTORY_MIN":
+        return (i_future - i_min) / max(spec.scale, 1e-4)
+    if spec.key == "BUFFER.INVENTORY_MAX":
+        return (i_max - i_future) / max(spec.scale, 1e-4)
+    if spec.key == "BUFFER.LONG_RUN_RATIO":
+        i_avail = max(0.0, i_current - i_min)
+        f9_max_allowed = f_avt + (i_avail / max(h_plan, 1e-3))
+        long_run_ratio = f9_ss / max(f9_max_allowed, 1e-4)
+        return (1.0 - long_run_ratio) / max(spec.scale, 1e-4)
+    return 0.0
+
+
 def _calc_spec_slack(x_dict: Dict[str, float], spec: ConstraintSpec, ctx: Any) -> float:
+    if spec.tier == Tier.T3_OPERATIONAL:
+        return _calc_buffer_slack(x_dict, spec, ctx)
+
     twin_view = getattr(ctx, "twin_view", None)
     if twin_view is None:
         return 0.0
@@ -113,9 +150,15 @@ class GlobalSearchAgent:
     """Агент глобального многоточечного поиска оптимальных режимов и восстановления допустимости."""
 
     @staticmethod
-    def solve(ctx: Any, mvs: Sequence[MVSpec] = DEFAULT_MVS, budget_s: float = 0.40) -> Optional[Target]:
-        """Многоточечный поиск глобального оптимума установившегося режима (SLSQP + COBYLA)."""
-        t_start = time.perf_counter()
+    def solve(ctx: Any, mvs: Sequence[MVSpec] = DEFAULT_MVS, max_starts: int = 2) -> Optional[Target]:
+        """Многоточечный поиск глобального оптимума установившегося режима (SLSQP + COBYLA).
+
+        Бюджет вычислений ограничен фиксированным числом стартовых точек (max_starts),
+        а не wall-clock временем: время выполнения одного и того же вызова не должно
+        зависеть от загрузки машины. max_starts=2 (u0 + 1 точка Соболя) откалиброван так,
+        чтобы уложиться в мягкий бюджет такта <= 2.0 с (см. tests/perf/test_cycle_budget.py);
+        при необходимости более тщательного поиска можно передать большее значение явно.
+        """
         twin_view = getattr(ctx, "twin_view", None)
         economics = getattr(ctx, "economics", None)
         policy = getattr(ctx, "policy", None) or PolicyConfig()
@@ -137,11 +180,8 @@ class GlobalSearchAgent:
         ss_hold = twin_view.steady(u0)
         specs = _get_applicable_specs(ctx)
 
-        # 1. Формирование стартовых точек: u0 + last_target + 16 точек Соболя
+        # 1. Формирование стартовых точек: u0 + 16 точек Соболя
         starts: List[np.ndarray] = [np.array([u0[name] for name in mv_names], dtype=float)]
-        last_target = getattr(ctx, "last_target", None)
-        if last_target is not None and hasattr(last_target, "u"):
-            starts.append(np.array([last_target.u.get(name, u0[name]) for name in mv_names], dtype=float))
 
         sobol = qmc.Sobol(d=len(mvs), seed=0)
         qmc_points = sobol.random(16)
@@ -169,10 +209,7 @@ class GlobalSearchAgent:
         best_target: Optional[Target] = None
         best_util = float("-inf")
 
-        for x0 in starts:
-            if time.perf_counter() - t_start > budget_s - 0.05:
-                break
-
+        for x0 in starts[:max_starts]:
             # SLSQP
             res = minimize(obj, x0, method="SLSQP", bounds=bounds, constraints=constraints,
                            options={"maxiter": 30, "ftol": 1e-3})
@@ -208,9 +245,13 @@ class GlobalSearchAgent:
         return best_target
 
     @staticmethod
-    def nearest_feasible(ctx: Any, mvs: Sequence[MVSpec] = DEFAULT_MVS, budget_s: float = 0.35) -> Optional[Target]:
-        """Поиск ближайшей допустимой точки min 0.5 * ||W(u - u0)||^2 при шансовых ограничениях."""
-        t_start = time.perf_counter()
+    def nearest_feasible(ctx: Any, mvs: Sequence[MVSpec] = DEFAULT_MVS, max_starts: int = 2) -> Optional[Target]:
+        """Поиск ближайшей допустимой точки min 0.5 * ||W(u - u0)||^2 при шансовых ограничениях.
+
+        Бюджет вычислений ограничен фиксированным числом стартовых точек (max_starts),
+        а не wall-clock временем. max_starts=2 (u0 + 1 точка Соболя) откалиброван так,
+        чтобы уложиться в мягкий бюджет такта <= 2.0 с (см. tests/perf/test_cycle_budget.py).
+        """
         twin_view = getattr(ctx, "twin_view", None)
         economics = getattr(ctx, "economics", None)
         data = getattr(ctx, "data", None)
@@ -258,10 +299,7 @@ class GlobalSearchAgent:
         best_target: Optional[Target] = None
         best_dist = float("inf")
 
-        for x0 in starts:
-            if time.perf_counter() - t_start > budget_s - 0.05:
-                break
-
+        for x0 in starts[:max_starts]:
             res = minimize(obj, x0, method="SLSQP", bounds=bounds, constraints=constraints,
                            options={"maxiter": 30, "ftol": 1e-3})
 
@@ -291,9 +329,12 @@ class GlobalSearchAgent:
         mvs: Sequence[MVSpec] = DEFAULT_MVS,
         policy: Optional[PolicyConfig] = None,
         origin: CandidateOrigin = CandidateOrigin.GLOBAL,
+        automation_level: Optional[AutomationLevel] = None,
     ) -> Candidate:
-        """Равномерное масштабирование вектора шага к цели с учетом max_move и границ T0."""
+        """Равномерное масштабирование вектора шага к цели с учетом max_move, границ T0 и режима CAUTIOUS."""
         mv_dict = {mv.name: mv for mv in mvs}
+        pol = policy or PolicyConfig()
+        cautious_factor = pol.cautious_step_scale if automation_level == AutomationLevel.CAUTIOUS else 1.0
         delta_full: Dict[str, float] = {}
 
         scale = 1.0
@@ -311,7 +352,7 @@ class GlobalSearchAgent:
         for name, diff in delta_full.items():
             mv = mv_dict[name]
             u_base = float(u0.get(name, (mv.lo + mv.hi) / 2.0))
-            req_du = diff * scale
+            req_du = diff * scale * cautious_factor
             eff_du, _ = apply_anti_windup(u_base, req_du, mv.max_move, mv.lo, mv.hi)
             if abs(eff_du) > 1e-4:
                 delta_eff[name] = round(eff_du, 4)

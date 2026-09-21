@@ -9,7 +9,6 @@ from __future__ import annotations
 
 from typing import Any, Dict, Optional, TypedDict
 from langgraph.graph import StateGraph, START, END
-from langgraph.checkpoint.memory import MemorySaver
 
 from src.supervisor.agents import (
     BriefingAgent,

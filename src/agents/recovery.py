@@ -12,7 +12,7 @@
 from __future__ import annotations
 
 import math
-from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple
+from typing import Any, Dict, List, Mapping, Optional, Sequence
 
 from src.agents.anti_windup import apply_anti_windup
 from src.agents.candidates import DEFAULT_MVS, MVSpec
@@ -27,35 +27,9 @@ from src.agents.contracts import (
 from src.agents.generator import signature_of
 from src.agents.global_search import GlobalSearchAgent, Target
 from src.agents.policy import PolicyConfig
-
-
-def lexi_decrease(
-    v_next: Tuple[float, float, float, float],
-    v_prev: Tuple[float, float, float, float],
-    rho: float = 0.9,
-) -> bool:
-    """
-    Проверяет строгое убывание нарушения старшего яруса:
-    v_next[top] <= rho * v_prev[top], при этом все ярусы выше top не ухудшаются (<= v_prev).
-    """
-    # Находим старший нарушенный ярус в v_prev
-    top = None
-    for t in range(4):
-        if v_prev[t] > 1e-4:
-            top = t
-            break
-
-    if top is None:
-        # В v_prev нарушений нет
-        return all(v_next[t] <= 1e-4 for t in range(4))
-
-    # Все ярусы выше top должны быть <= 1e-4 в v_next
-    for t in range(top):
-        if v_next[t] > v_prev[t] + 1e-4:
-            return False
-
-    # В ярусе top должно быть убывание
-    return v_next[top] <= rho * v_prev[top] + 1e-4
+from src.agents.quality import QualityAgent
+from src.agents.reliability import ReliabilityAgent
+from src.agents.supply import SupplyAgent
 
 
 class RecoveryPlanner:
@@ -73,6 +47,19 @@ class RecoveryPlanner:
         u0 = getattr(ctx, "u", None) or (ctx.estimate.u_actual if getattr(ctx, "estimate", None) else {})
         mv_dict = {mv.name: mv for mv in mvs}
 
+        reliability = ReliabilityAgent()
+        quality = QualityAgent()
+        supply = SupplyAgent()
+
+        def _certs(cand: Candidate, pred: Any, hold_pred: Any) -> tuple:
+            if cand is None or pred is None or hold_pred is None:
+                return ()
+            return (
+                reliability.certify(cand, pred, hold_pred, ctx),
+                quality.certify(cand, pred, hold_pred, ctx),
+                supply.certify(cand, pred, hold_pred, ctx),
+            )
+
         # Ближайшая допустимая цель
         target = GlobalSearchAgent.nearest_feasible(ctx, mvs=mvs)
 
@@ -84,7 +71,10 @@ class RecoveryPlanner:
         from src.agents.negotiation import calculate_merit
         hold_cand = Candidate(signature=signature_of({}), delta_u={}, origin=CandidateOrigin.HOLD, proposed_by="planner")
         hold_pred = twin_view.predict(hold_cand) if twin_view else None
-        m_hold = calculate_merit(hold_cand, certs=(), blend_cert=None, pred=hold_pred, hold_pred=hold_pred, ctx=ctx, mvs=mvs)
+        m_hold = calculate_merit(
+            hold_cand, certs=_certs(hold_cand, hold_pred, hold_pred), blend_cert=None,
+            pred=hold_pred, hold_pred=hold_pred, ctx=ctx, mvs=mvs,
+        )
         v_prev = m_hold.v
 
         current_move = dict(first_candidate.delta_u)
@@ -107,7 +97,10 @@ class RecoveryPlanner:
                 proposed_by="planner",
             )
             pred_k = twin_view.predict(cand_k) if twin_view else None
-            m_k = calculate_merit(cand_k, certs=(), blend_cert=None, pred=pred_k, hold_pred=hold_pred, ctx=ctx, mvs=mvs)
+            m_k = calculate_merit(
+                cand_k, certs=_certs(cand_k, pred_k, hold_pred), blend_cert=None,
+                pred=pred_k, hold_pred=hold_pred, ctx=ctx, mvs=mvs,
+            )
 
             steps.append(
                 RecoveryStep(

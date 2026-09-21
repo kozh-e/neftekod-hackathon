@@ -101,7 +101,17 @@ def build_decision_card(state: CoreState) -> DecisionCard:
         if "|reliability" in k or "|quality" in k:
             for ev in cert.evaluations:
                 if ev.status in ("VIOLATED", "ACTIVE"):
-                    active_or_violated.append(f"{ev.spec_key}: статус {ev.status}, запас {ev.slack:.3f}")
+                    if ev.slack is not None:
+                        active_or_violated.append(f"{ev.spec_key}: статус {ev.status}, запас {ev.slack:.3f}")
+                    elif ev.scenario_pass_fraction is not None:
+                        active_or_violated.append(
+                            f"{ev.spec_key}: статус {ev.status}, доля допустимых сценариев "
+                            f"{ev.scenario_pass_fraction:.1%}"
+                        )
+                    elif ev.reason:
+                        active_or_violated.append(f"{ev.spec_key}: статус {ev.status}, {ev.reason}")
+                    else:
+                        active_or_violated.append(f"{ev.spec_key}: статус {ev.status}")
 
     block_2 = {
         "hold_violated": (decision.hold_merit.v != (0, 0, 0, 0)) if decision else False,

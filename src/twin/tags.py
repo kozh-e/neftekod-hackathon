@@ -11,6 +11,8 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import Any, Callable, Dict, Iterable, List, Literal, Mapping, Optional, Tuple
 
+from src.twin.params import ReactorParams
+
 
 class SemanticStatus(str, Enum):
     CONFIRMED = "CONFIRMED"                  # официальный реестр + правдоподобные значения
@@ -220,7 +222,7 @@ LEGACY_ALIASES: dict[str, str] = {
     "flash_diesel": "LIMS_HT_FLASH",
 }
 
-RHO_FEED_T_M3: float = 0.847
+RHO_FEED_T_M3: float = ReactorParams().rho_feed_t_m3
 
 DERIVED: dict[str, Callable[[Mapping[str, float]], float]] = {
     "HT_BED_MEAN": lambda t: (t["HT_T6"] + t["HT_T11"]) / 2.0,

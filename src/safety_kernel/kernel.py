@@ -59,7 +59,11 @@ def independent_effective_value(
     sigma = _KERNEL_SIGMA.get(spec.quantity, 0.0)
     if estimate and spec.quantity in estimate.quality:
         q_est = estimate.quality[spec.quantity]
-        sigma = math.sqrt(q_est.sigma_meas ** 2 + q_est.sigma_calib ** 2)
+        sigma_estimate = math.sqrt(q_est.sigma_meas ** 2 + q_est.sigma_calib ** 2)
+        # Независимый априорный sigma - это пол, а не запасной вариант: ядро не должно
+        # доверять оценке основного конвейера, если та заявляет меньшую неопределенность,
+        # чем собственный независимый приор ядра (иначе проверка перестает быть независимой).
+        sigma = max(sigma, sigma_estimate)
 
     alpha = policy.alpha_equipment if spec.tier == Tier.T1_EQUIPMENT else policy.alpha_quality
     z = _kernel_z(alpha)

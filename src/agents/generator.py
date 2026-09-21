@@ -161,7 +161,13 @@ def refine_half_step(
     policy = getattr(ctx, "policy", None) or PolicyConfig()
     data = getattr(ctx, "data", None)
     blocked_set = set(data.blocked_mvs) if data else set()
+    automation_level = data.automation_level if data else None
     u_current = getattr(ctx, "u", None) or (ctx.estimate.u_actual if getattr(ctx, "estimate", None) else {})
+
+    # Масштабирование шага при режиме CAUTIOUS (как в local_stencil)
+    step_scale = 1.0
+    if automation_level == AutomationLevel.CAUTIOUS:
+        step_scale = policy.cautious_step_scale
 
     mv_dict = {mv.name: mv for mv in mvs}
     best_du = dict(best.delta_u)
@@ -176,7 +182,7 @@ def refine_half_step(
         base_delta = best_du.get(mv.name, 0.0)
 
         for sign in (+0.5, -0.5):
-            req_du = base_delta + sign * mv.step
+            req_du = base_delta + sign * mv.step * step_scale
             eff_du, _ = apply_anti_windup(
                 current_u=u0,
                 delta_u_calc=req_du,
@@ -301,12 +307,18 @@ def propose_initial(ctx: Any, mvs: Sequence[MVSpec] = DEFAULT_MVS) -> List[Candi
     if automation_level not in (AutomationLevel.CORRECTIVE_ONLY, AutomationLevel.REFUSAL_DATA):
         target = GlobalSearchAgent.solve(ctx, mvs=mvs)
         if target:
-            pool.append(GlobalSearchAgent.move_towards(u0, target.u, mvs=mvs, policy=policy, origin=CandidateOrigin.GLOBAL))
+            pool.append(GlobalSearchAgent.move_towards(
+                u0, target.u, mvs=mvs, policy=policy, origin=CandidateOrigin.GLOBAL,
+                automation_level=automation_level,
+            ))
 
     # 3. Ближайшая допустимая точка при нарушении текущего режима
     if hold_violates(ctx):
         nearest = GlobalSearchAgent.nearest_feasible(ctx, mvs=mvs)
         if nearest:
-            pool.append(GlobalSearchAgent.move_towards(u0, nearest.u, mvs=mvs, policy=policy, origin=CandidateOrigin.NEAREST_FEASIBLE))
+            pool.append(GlobalSearchAgent.move_towards(
+                u0, nearest.u, mvs=mvs, policy=policy, origin=CandidateOrigin.NEAREST_FEASIBLE,
+                automation_level=automation_level,
+            ))
 
     return dedupe_by_signature(pool)
