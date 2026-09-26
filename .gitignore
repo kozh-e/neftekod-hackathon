@@ -1,0 +1,19 @@
+.DS_Store
+/.agents
+/.obsidian
+242000_tags.csv
+avt_tags.csv
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.claude/
+*.jsonl
+data/decisions/
+.*.bkp
+*.bkp
+.idea/
+# Кэш валидационного ноутбука (parquet, ~75 МБ)
+data/processed/cache/
+data/llm_cassettes
+data/decisions_corrupted_backup_2026-09-20

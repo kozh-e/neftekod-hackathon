@@ -1,0 +1,743 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <title>Пульт старшего оператора Р-202</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div id="root-console" class="mode-advisory" role="main">
+    <!-- STATUS BAR 76px -->
+    <header class="status-bar" id="status-bar">
+      <div id="mode-pill" class="mode-pill">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#FFFFFF" stroke-width="2.2">
+          <circle cx="12" cy="12" r="8"></circle>
+          <circle cx="12" cy="12" r="3" fill="#FFFFFF"></circle>
+        </svg>
+        <span id="mode-pill-text" class="mode-pill-text">СОВЕТ</span>
+      </div>
+
+      <button id="btn-mode-toggle" type="button" class="btn-mode-toggle" aria-label="Переключение режима управления">
+        Включить автомат
+      </button>
+
+      <div class="divider-v"></div>
+
+      <div class="unit-info">
+        <span class="unit-title">Гидроочистка 24-2000 · реактор Р-202</span>
+      </div>
+
+      <div class="divider-v"></div>
+
+      <div class="scenario-block">
+        <span class="scenario-label">СЦЕНАРИЙ</span>
+        <select id="scenario-select" class="scenario-select" aria-label="Выбор сценария работы">
+          <option value="">—</option>
+        </select>
+      </div>
+
+      <div class="spacer"></div>
+
+      <div class="margin-block">
+        <span class="margin-label">МАРЖА</span>
+        <span class="margin-value mono"><span id="margin-val">—</span> <span style="font-size: 16px; font-weight: 500; color: var(--ink-3);">млн ₽/ч</span></span>
+      </div>
+      <span id="margin-delta" class="margin-delta mono">—</span>
+
+      <!-- Бейдж индекса уверенности данных (F1). Скрыт целиком, пока confidence == null. -->
+      <div id="confidence-badge-wrap" class="confidence-badge-wrap" style="display: none;">
+        <div class="divider-v"></div>
+        <button type="button" id="confidence-badge" class="confidence-badge" aria-haspopup="true" aria-expanded="false">
+          <span class="confidence-badge-label">ДАННЫЕ</span>
+          <span id="confidence-badge-score" class="confidence-badge-score mono">—</span>
+        </button>
+        <div id="confidence-tooltip" class="confidence-tooltip" role="tooltip"></div>
+      </div>
+
+      <div class="divider-v"></div>
+
+      <div id="alarm-badge" class="alarm-badge">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M6 16V11a6 6 0 0 1 12 0v5l1.5 2h-15z"></path>
+          <path d="M10 20.5a2 2 0 0 0 4 0"></path>
+        </svg>
+        <span id="alarm-badge-text" class="alarm-badge-text">ПАЗ в норме</span>
+      </div>
+
+      <span id="clock-text" class="clock-text mono">12:40</span>
+
+      <button id="btn-shift-report" type="button" class="btn-shift-report">Сдать смену</button>
+    </header>
+
+    <!-- REFUSAL / AUTO-EXIT BANNER 60px -->
+    <div id="alert-banner" class="alert-banner" role="alert" style="display: none;">
+      <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#6B4506" stroke-width="2.2">
+        <path d="M12 3l10 18H2z"></path>
+        <path d="M12 10v5"></path>
+        <path d="M12 18v.5"></path>
+      </svg>
+      <span id="banner-title" class="alert-banner-title">АВТОМАТ ОТКЛЮЧЁН</span>
+      <span id="banner-text" class="alert-banner-text">Причина автовыхода</span>
+      <div class="spacer"></div>
+      <button id="btn-banner-ack" type="button" class="btn-ack">Квитировать</button>
+    </div>
+
+    <!-- TAB BAR (D1) -->
+    <nav class="tab-bar" role="tablist">
+      <button class="tab-btn active" data-tab="overview" role="tab" aria-selected="true">Обзор</button>
+      <button class="tab-btn" data-tab="manual" role="tab" aria-selected="false">Ручное управление</button>
+      <button class="tab-btn" data-tab="xai" role="tab" aria-selected="false">Агенты и XAI</button>
+      <button class="tab-btn" data-tab="pareto" role="tab" aria-selected="false">Парето-анализ</button>
+      <button class="tab-btn" data-tab="shift" role="tab" aria-selected="false">Журнал смены</button>
+      <button class="tab-btn" data-tab="blending" role="tab" aria-selected="false">Блендинг</button>
+      <button class="tab-btn" data-tab="constants" role="tab" aria-selected="false">Константы</button>
+      <button class="tab-btn" data-tab="supervisor" role="tab" aria-selected="false">Супервизор</button>
+    </nav>
+
+    <!-- TAB 1: ОБЗОР -->
+    <section class="tab-panel" data-tab-panel="overview">
+      <!-- Панель Симулятор (D6) -->
+      <div class="sim-panel">
+        <div class="sim-panel-left">
+          <span class="sim-title">СИМУЛЯТОР:</span>
+          <span class="sim-speed-label">Скорость такта:</span>
+          <div class="sim-speed-buttons" id="sim-speed-buttons">
+            <button type="button" class="sim-speed-btn" data-spd="0">Пауза</button>
+            <button type="button" class="sim-speed-btn" data-spd="10">10с</button>
+            <button type="button" class="sim-speed-btn" data-spd="30">30с</button>
+            <button type="button" class="sim-speed-btn" data-spd="60">1 мин</button>
+            <button type="button" class="sim-speed-btn" data-spd="300">5 мин</button>
+            <button type="button" class="sim-speed-btn" data-spd="600">Реальное время</button>
+          </div>
+        </div>
+        <div class="sim-panel-right">
+          <button type="button" id="btn-sim-tick" class="sim-tick-btn">Следующий такт вручную (+1)</button>
+        </div>
+      </div>
+
+      <main class="console-body">
+        <!-- LEFT COLUMN -->
+        <section class="left-column" aria-label="Технологические графики">
+          <!-- Legend Bar -->
+          <div class="legend-bar">
+            <span style="font-weight: 600; color: var(--ink);">История <span id="legend-hist-hours">8</span> ч · прогноз 4 ч · шаг 10 мин</span>
+            <div class="legend-item">
+              <svg width="28" height="8"><line x1="0" y1="4" x2="28" y2="4" stroke="#2B2F33" stroke-width="2.5"></line></svg>
+              <span>факт</span>
+            </div>
+            <div class="legend-item">
+              <svg width="28" height="8"><line x1="0" y1="4" x2="28" y2="4" stroke="#7D8288" stroke-width="2" stroke-dasharray="5 4"></line></svg>
+              <span>без изменений</span>
+            </div>
+            <div class="legend-item">
+              <svg width="28" height="8"><line x1="0" y1="4" x2="28" y2="4" stroke="#1D5AA6" stroke-width="3"></line></svg>
+              <span id="legend-rec-label">рекомендация</span>
+            </div>
+            <div id="legend-edit-item" class="legend-item" style="display: none;">
+              <svg width="28" height="8"><line x1="0" y1="4" x2="28" y2="4" stroke="#B45309" stroke-width="3"></line></svg>
+              <span>ваша правка</span>
+            </div>
+            <div class="legend-item">
+              <svg width="28" height="12"><rect x="0" y="0" width="28" height="12" fill="#1D5AA6" fill-opacity="0.16"></rect></svg>
+              <span>P10–P90</span>
+            </div>
+            <div class="legend-item">
+              <svg width="28" height="8"><line x1="0" y1="4" x2="28" y2="4" stroke="#B3261E" stroke-width="2"></line></svg>
+              <span>лимит</span>
+            </div>
+
+            <!-- D3: Виджеты (Настроить вид) -->
+            <div class="widget-config-wrap">
+              <button type="button" id="btn-widget-config" class="btn-widget-config">Настроить вид ▾</button>
+              <div id="widget-popover" class="widget-popover" style="display: none;">
+                <div class="widget-popover-title">Отображение графиков</div>
+                <div class="widget-group-label">Контролируемые (CV)</div>
+                <label class="widget-checkbox-label"><input type="checkbox" data-widget="cv.sulfur" checked> Сера (HT_Q21)</label>
+                <label class="widget-checkbox-label"><input type="checkbox" data-widget="cv.flash" checked> Вспышка (HT_FLASH)</label>
+                <label class="widget-checkbox-label"><input type="checkbox" data-widget="cv.dp" checked> Перепад Р-202 (HT_P8)</label>
+                <div class="widget-group-label" style="margin-top: 8px;">Уставки (MV)</div>
+                <label class="widget-checkbox-label"><input type="checkbox" data-widget="mv.0" checked> Сырьё ГО (HT_F9)</label>
+                <label class="widget-checkbox-label"><input type="checkbox" data-widget="mv.1" checked> Вход Р-202 (HT_T6)</label>
+                <label class="widget-checkbox-label"><input type="checkbox" data-widget="mv.2" checked> Давление (HT_P13)</label>
+                <label class="widget-checkbox-label"><input type="checkbox" data-widget="mv.3" checked> Кратность ВСГ (HT_GOR)</label>
+                <label class="widget-checkbox-label"><input type="checkbox" data-widget="mv.4" checked> Перевал П-3 (AVT_T55)</label>
+                <div class="widget-group-label" style="margin-top: 8px;">Датчики (справочно)</div>
+                <label class="widget-checkbox-label"><input type="checkbox" data-widget="sensors.product_quality" checked> Качество продукта</label>
+                <label class="widget-checkbox-label"><input type="checkbox" data-widget="sensors.feed_quality" checked> Качество сырья</label>
+              </div>
+            </div>
+
+            <div class="history-switch">
+              <button type="button" class="history-btn" data-hours="1">1 ч</button>
+              <button type="button" class="history-btn active" data-hours="8">8 ч</button>
+              <button type="button" class="history-btn" data-hours="12">12 ч</button>
+            </div>
+          </div>
+
+          <!-- CV 0: Sulfur -->
+          <div class="cv-panel" id="cv-panel-sulfur">
+            <div class="cv-header">
+              <span class="cv-title">СЕРА</span>
+              <span class="cv-tag mono">HT_Q21</span>
+              <span id="cv-sulfur-val" class="cv-value mono">—</span>
+              <span class="cv-unit">ppm</span>
+              <span id="cv-sulfur-chip" class="cv-chip ok">в норме</span>
+              <span id="cv-sulfur-note" class="cv-note">—</span>
+            </div>
+            <div id="chart-sulfur" style="width: 100%; height: 220px;"></div>
+          </div>
+
+          <!-- CV 1: Flash -->
+          <div class="cv-panel" id="cv-panel-flash">
+            <div class="cv-header">
+              <span class="cv-title">ВСПЫШКА</span>
+              <span class="cv-tag mono">HT_FLASH</span>
+              <span id="cv-flash-val" class="cv-value mono">—</span>
+              <span class="cv-unit">°C</span>
+              <span id="cv-flash-chip" class="cv-chip ok">в норме</span>
+              <span id="cv-flash-note" class="cv-note">—</span>
+            </div>
+            <div id="chart-flash" style="width: 100%; height: 200px;"></div>
+          </div>
+
+          <!-- CV 2: DP Compact Row -->
+          <div class="dp-compact-row" id="cv-panel-dp">
+            <div style="display: flex; align-items: baseline; gap: 8px; width: 220px; flex-shrink: 0;">
+              <span class="cv-title" style="font-size: 14px;">ПЕРЕПАД Р-202</span>
+              <span class="cv-tag mono" style="font-size: 12px;">HT_P8</span>
+              <span id="cv-dp-val" class="mono" style="font-size: 20px; font-weight: 600;">—</span>
+              <span class="cv-unit" style="font-size: 13px;">кПа</span>
+            </div>
+            <div id="chart-dp" style="flex-grow: 1; height: 56px;"></div>
+            <div id="cv-dp-chip" class="cv-chip ok" style="flex-shrink: 0; font-size: 13px;">в норме</div>
+          </div>
+
+          <!-- MV Section Header -->
+          <div class="mv-strip-header">
+            <span class="mv-strip-title">УСТАВКИ (MV)</span>
+            <span class="mv-strip-desc">ступенька — уставка SP · тонкая — факт PV · светлая полоса — коридор шага из паспорта</span>
+            <div class="spacer"></div>
+            <span id="mv-frozen-badge" class="mv-frozen-badge" style="display: none;">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#4A3004" stroke-width="2.2"><rect x="5" y="11" width="14" height="10" rx="1.5"></rect><path d="M8 11V8a4 4 0 0 1 8 0v3"></path></svg>
+              все уставки заморожены (safe-hold)
+            </span>
+          </div>
+
+          <!-- MV Grid (5 cards) -->
+          <div class="mv-grid" id="mv-grid">
+            <div class="mv-card" id="mv-card-0">
+              <div class="mv-header">
+                <span class="mv-name">Сырьё ГО <span class="mono" style="font-size: 12px; color: var(--ink-3);">HT_F9</span></span>
+              </div>
+              <div class="mv-value-row">
+                <span class="mv-curr-val mono" id="mv-0-curr">—</span>
+                <span class="mv-target-val mono" id="mv-0-target"></span>
+              </div>
+              <div id="chart-mv-0" style="width: 100%; height: 84px;"></div>
+              <span class="mv-corridor-text mono" id="mv-0-corr">—</span>
+            </div>
+
+            <div class="mv-card" id="mv-card-1">
+              <div class="mv-header">
+                <span class="mv-name">Вход Р-202 <span class="mono" style="font-size: 12px; color: var(--ink-3);">HT_T6</span></span>
+              </div>
+              <div class="mv-value-row">
+                <span class="mv-curr-val mono" id="mv-1-curr">—</span>
+                <span class="mv-target-val mono" id="mv-1-target"></span>
+              </div>
+              <div id="chart-mv-1" style="width: 100%; height: 84px;"></div>
+              <span class="mv-corridor-text mono" id="mv-1-corr">—</span>
+            </div>
+
+            <div class="mv-card" id="mv-card-2">
+              <div class="mv-header">
+                <span class="mv-name">Давление <span class="mono" style="font-size: 12px; color: var(--ink-3);">HT_P13</span></span>
+              </div>
+              <div class="mv-value-row">
+                <span class="mv-curr-val mono" id="mv-2-curr">—</span>
+                <span class="mv-target-val mono" id="mv-2-target"></span>
+              </div>
+              <div id="chart-mv-2" style="width: 100%; height: 84px;"></div>
+              <span class="mv-corridor-text mono" id="mv-2-corr">—</span>
+            </div>
+
+            <div class="mv-card" id="mv-card-3">
+              <div class="mv-header">
+                <span class="mv-name">Кратность ВСГ <span class="mono" style="font-size: 12px; color: var(--ink-3);">HT_GOR</span></span>
+              </div>
+              <div class="mv-value-row">
+                <span class="mv-curr-val mono" id="mv-3-curr">—</span>
+                <span class="mv-target-val mono" id="mv-3-target"></span>
+              </div>
+              <div id="chart-mv-3" style="width: 100%; height: 84px;"></div>
+              <span class="mv-corridor-text mono" id="mv-3-corr">—</span>
+            </div>
+
+            <div class="mv-card" id="mv-card-4">
+              <div class="mv-header">
+                <span class="mv-name">Перевал П-3 <span class="mono" style="font-size: 12px; color: var(--ink-3);">AVT_T55</span></span>
+              </div>
+              <div class="mv-value-row">
+                <span class="mv-curr-val mono" id="mv-4-curr">—</span>
+                <span class="mv-target-val mono" id="mv-4-target"></span>
+              </div>
+              <div id="chart-mv-4" style="width: 100%; height: 84px;"></div>
+              <span class="mv-corridor-text mono" id="mv-4-corr">—</span>
+            </div>
+          </div>
+
+          <!-- Секция «Качество продукта и сырья» (F1, 03_STREAMLIT_MIGRATION_PLAN.md §4). Свёрнута по умолчанию. -->
+          <div class="sensors-panel" id="sensors-panel">
+            <button type="button" id="btn-toggle-sensors" class="btn-toggle-sensors" aria-expanded="false">
+              <svg id="sensors-toggle-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M9 5l7 7-7 7"></path></svg>
+              Качество продукта и сырья
+            </button>
+            <div id="sensors-list" class="sensors-list" style="display: none;">
+              <div class="sensors-group">
+                <div class="sensors-group-label">Реактор Р-202</div>
+                <div id="sensors-group-reactor" class="sensors-group-rows"></div>
+              </div>
+              <div class="sensors-group">
+                <div class="sensors-group-label">Качество товарного продукта</div>
+                <div id="sensors-group-product" class="sensors-group-rows"></div>
+              </div>
+              <div class="sensors-group">
+                <div class="sensors-group-label">Качество сырья</div>
+                <div id="sensors-group-feed" class="sensors-group-rows"></div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- RIGHT COLUMN -->
+        <section class="right-column" aria-label="Карточка управления и лента событий">
+          <div id="decision-card-container"></div>
+
+          <div class="feed-panel" role="log" aria-live="polite">
+            <div class="feed-header">
+              <span style="font-size: 15px; font-weight: 700; letter-spacing: 0.05em;">ЛЕНТА</span>
+              <span style="font-size: 13px; color: var(--ink-3);">что сделано и почему</span>
+            </div>
+            <div class="feed-items-container" id="feed-items-container"></div>
+          </div>
+        </section>
+      </main>
+    </section>
+
+    <!-- TAB 2: РУЧНОЕ УПРАВЛЕНИЕ (D4, D4a, D4b) -->
+    <section class="tab-panel" data-tab-panel="manual" hidden>
+      <div class="tab-header-box">
+        <div class="tab-header-title-row">
+          <h2 class="tab-title">Ручное управление и песочница «Что если»</h2>
+          <span class="tab-sub-warning">Прогноз в этой вкладке не влияет на реальную установку, пока вы не нажмёте «Применить к боевой установке»</span>
+        </div>
+        <div id="manual-loaded-point-note" class="manual-point-note" style="display: none;"></div>
+      </div>
+
+      <div class="manual-layout">
+        <!-- Левая колонка: форма 5 MV + кнопки -->
+        <div class="manual-controls-col">
+          <div class="manual-card">
+            <div class="manual-card-header">
+              <span class="manual-card-title">Уставки технологического режима (все 5 MV)</span>
+              <button type="button" id="btn-manual-reset" class="btn-reset-rec" style="font-size: 13px; padding: 4px 10px;">Сбросить к текущим</button>
+            </div>
+            <div class="manual-rows-container" id="manual-rows-container">
+              <!-- Динамически заполняется 5 строками MV со степперами -->
+            </div>
+
+            <div class="manual-actions-bar">
+              <button type="button" id="btn-manual-preview" class="btn-manual-preview">
+                Показать прогноз (песочница)
+              </button>
+              <button type="button" id="btn-manual-commit" class="btn-commit" style="height: 44px;">
+                Применить к боевой установке
+              </button>
+            </div>
+
+            <!-- Нейтральный блок песочницы для коридоров (D4b) -->
+            <div id="manual-sandbox-info" class="sandbox-info-box" style="display: none;"></div>
+
+            <!-- Плитки эффекта прогноза -->
+            <div class="effect-grid" id="manual-effect-grid" style="margin-top: 14px;">
+              <div class="effect-tile">
+                <span style="font-size: 13px; color: var(--ink-3);">Сера через 4 ч</span>
+                <span id="manual-eff-sulfur" class="mono" style="font-size: 22px; font-weight: 600; color: var(--edit-ink);">—</span>
+                <span style="font-size: 12px; color: var(--ink-2);">ГОСТ ≤ 10.0 ppm</span>
+              </div>
+              <div class="effect-tile">
+                <span style="font-size: 13px; color: var(--ink-3);">Запас по вспышке</span>
+                <span id="manual-eff-flash" class="mono" style="font-size: 22px; font-weight: 600;">—</span>
+                <span style="font-size: 12px; color: var(--ink-2);">над 55 °C с учётом 2σ</span>
+              </div>
+              <div class="effect-tile">
+                <span style="font-size: 13px; color: var(--ink-3);">Дельта маржи</span>
+                <span id="manual-eff-margin" class="mono" style="font-size: 22px; font-weight: 600;">—</span>
+                <span style="font-size: 12px; color: var(--ink-2);">эффект к текущему</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Правая колонка: графики прогноза ручного ввода -->
+        <div class="manual-charts-col">
+          <div class="cv-panel">
+            <div class="cv-header">
+              <span class="cv-title">ПРОГНОЗ СЕРЫ (РУЧНОЙ ВВОД)</span>
+              <span class="cv-tag mono">HT_Q21</span>
+            </div>
+            <div id="chart-manual-sulfur" style="width: 100%; height: 200px;"></div>
+          </div>
+          <div class="cv-panel">
+            <div class="cv-header">
+              <span class="cv-title">ПРОГНОЗ ВСПЫШКИ</span>
+              <span class="cv-tag mono">HT_FLASH</span>
+            </div>
+            <div id="chart-manual-flash" style="width: 100%; height: 180px;"></div>
+          </div>
+          <div class="dp-compact-row">
+            <div style="width: 220px; flex-shrink: 0; font-size: 14px; font-weight: 600;">
+              ПЕРЕПАД Р-202 <span class="mono" style="font-size: 12px; color: var(--ink-3);">HT_P8</span>
+            </div>
+            <div id="chart-manual-dp" style="flex-grow: 1; height: 50px;"></div>
+          </div>
+
+          <div class="manual-mv-preview-row" style="display: grid; grid-template-columns: repeat(5, 1fr); gap: 8px; margin-top: 10px;">
+            <div class="mv-card" style="padding: 6px;">
+              <span class="mono" style="font-size: 11px; font-weight: 600;">F9 Сырьё</span>
+              <div id="chart-manual-mv-0" style="width: 100%; height: 60px;"></div>
+            </div>
+            <div class="mv-card" style="padding: 6px;">
+              <span class="mono" style="font-size: 11px; font-weight: 600;">T6 Вход</span>
+              <div id="chart-manual-mv-1" style="width: 100%; height: 60px;"></div>
+            </div>
+            <div class="mv-card" style="padding: 6px;">
+              <span class="mono" style="font-size: 11px; font-weight: 600;">P13 Давление</span>
+              <div id="chart-manual-mv-2" style="width: 100%; height: 60px;"></div>
+            </div>
+            <div class="mv-card" style="padding: 6px;">
+              <span class="mono" style="font-size: 11px; font-weight: 600;">GOR ВСГ</span>
+              <div id="chart-manual-mv-3" style="width: 100%; height: 60px;"></div>
+            </div>
+            <div class="mv-card" style="padding: 6px;">
+              <span class="mono" style="font-size: 11px; font-weight: 600;">T55 П-3</span>
+              <div id="chart-manual-mv-4" style="width: 100%; height: 60px;"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- TAB 3: АГЕНТЫ И XAI (D7) -->
+    <section class="tab-panel" data-tab-panel="xai" hidden>
+      <div class="tab-header-box">
+        <h2 class="tab-title">Объяснимый ИИ (XAI) и протокол переговоров МАС</h2>
+        <span class="tab-sub-info">Объяснение решения агентов простым языком (LLM) и история прошлых объяснений</span>
+      </div>
+
+      <div class="xai-llm-card" id="xai-llm-card">
+        <div class="xai-card-header">
+          <span class="xai-card-title">Отчёт LLM: почему агенты приняли такое решение <span id="xai-llm-report-mode" class="xai-report-mode-badge"></span></span>
+          <button type="button" id="btn-refresh-xai-report" class="btn-refresh-sm">Обновить</button>
+        </div>
+        <div id="xai-llm-report-body" class="xai-llm-report-body">
+          <span class="xai-llm-empty">Отчёт формируется LLM-супервизором и доступен только при настроенном ключе LLM (NEFTEKOD_LLM_API_KEY / OPENAI_API_KEY).</span>
+        </div>
+      </div>
+
+      <div class="xai-layout">
+        <div class="xai-main-card">
+          <div class="xai-card-header">
+            <span class="xai-card-title">История отчётов LLM</span>
+          </div>
+          <div id="xai-report-history-container" class="xai-report-history-container"></div>
+        </div>
+
+        <div class="xai-side-col">
+          <div class="xai-side-card">
+            <div class="xai-card-header">
+              <span class="xai-card-title">Позиции специализированных агентов</span>
+            </div>
+            <div id="xai-agents-list" class="xai-agents-list"></div>
+          </div>
+
+          <div class="xai-side-card" style="margin-top: 14px;">
+            <div class="xai-card-header">
+              <span class="xai-card-title">Проверки независимого ядра безопасности</span>
+            </div>
+            <div id="xai-kernel-checks" class="xai-kernel-checks"></div>
+          </div>
+
+          <div class="xai-side-card" style="margin-top: 14px;">
+            <div class="xai-card-header">
+              <span class="xai-card-title">Спросить систему</span>
+              <button type="button" id="btn-clear-ask-history" class="btn-refresh-sm">Очистить историю</button>
+            </div>
+            <div class="ask-box">
+              <label for="ask-input" style="position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0);">Вопрос системе</label>
+              <input id="ask-input" type="text" class="ask-input" placeholder="Спросить систему: «почему не поднимаем загрузку?»">
+              <button id="btn-ask" type="button" class="btn-ask">Спросить</button>
+            </div>
+            <div id="ask-history-container" class="ask-history-container"></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- TAB 4: ПАРЕТО-АНАЛИЗ (D5) -->
+    <section class="tab-panel" data-tab-panel="pareto" hidden>
+      <div class="tab-header-box">
+        <div class="tab-header-title-row">
+          <h2 class="tab-title">Парето-анализ многокритериальной оптимизации</h2>
+          <span class="tab-sub-info">Кликните по любой точке на графике, чтобы загрузить её уставки в ручное управление</span>
+        </div>
+      </div>
+
+      <div class="pareto-card">
+        <div class="pareto-toolbar">
+          <div class="pareto-axis-group">
+            <label for="pareto-axis-x" class="pareto-axis-label">Ось X:</label>
+            <select id="pareto-axis-x" class="pareto-select"></select>
+          </div>
+          <div class="pareto-axis-group">
+            <label for="pareto-axis-y" class="pareto-axis-label">Ось Y:</label>
+            <select id="pareto-axis-y" class="pareto-select"></select>
+          </div>
+          <div class="spacer"></div>
+          <button type="button" id="btn-refresh-pareto" class="btn-refresh-sm">Обновить фронт</button>
+        </div>
+
+        <div id="pareto-chart-container" style="width: 100%; height: 520px;"></div>
+
+        <div class="pareto-legend-hint">
+          <span>● <b style="color: #2E7D32;">Зелёный</b>: Парето-оптимальные</span>
+          <span>○ <b style="color: #90A4AE;">Серый</b>: Доминируемые</span>
+          <span>✖ <b style="color: #C62828;">Красный</b>: Отклонены Hard-Veto</span>
+          <span>◆ <b style="color: #F9A825;">Ромб</b>: Рекомендация</span>
+          <span>■ <b style="color: #263238;">Квадрат</b>: Текущий режим (Hold)</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- TAB 5: ЖУРНАЛ СМЕНЫ (§8) -->
+    <section class="tab-panel" data-tab-panel="shift" hidden>
+      <div class="tab-header-box">
+        <div class="tab-header-title-row">
+          <h2 class="tab-title">Электронный журнал и сменный рапорт старшего оператора</h2>
+          <button type="button" id="btn-refresh-shift" class="btn-refresh-sm">Сформировать рапорт заново</button>
+        </div>
+      </div>
+
+      <div class="shift-report-card">
+        <div id="shift-report-container" class="shift-report-body">
+          Загрузка сменного отчета...
+        </div>
+      </div>
+    </section>
+
+    <!-- TAB: БЛЕНДИНГ (F2, 03_STREAMLIT_MIGRATION_PLAN.md §5) -->
+    <section class="tab-panel" data-tab-panel="blending" hidden>
+      <div class="tab-header-box">
+        <div class="tab-header-title-row">
+          <h2 class="tab-title">Блендинг дизельного топлива</h2>
+          <span class="tab-sub-info">Текущая рецептура смешения — расчёт МАС на последнем такте, без пересчёта на этом экране</span>
+        </div>
+      </div>
+
+      <!-- Заглушка: до первого такта / узел блендинга не отдал рецепт -->
+      <div id="blending-empty" class="blending-empty" style="display: none;">Блендинг недоступен для этого такта</div>
+
+      <div id="blending-content" class="blending-layout">
+        <!-- Компоненты смешения (танки) -->
+        <div class="blending-card">
+          <div class="blending-card-header">
+            <span class="blending-card-title">Компоненты смешения</span>
+          </div>
+          <div id="blending-components" class="blending-components-grid"></div>
+        </div>
+
+        <!-- Сертификат текущего рецепта -->
+        <div class="blending-card">
+          <div class="blending-card-header">
+            <span class="blending-card-title">Сертификат текущего рецепта</span>
+            <span id="blending-cert-status" class="cv-chip nodata">—</span>
+          </div>
+          <table class="blending-cert-table">
+            <thead>
+              <tr><th>Показатель</th><th>План</th><th>Лимит</th></tr>
+            </thead>
+            <tbody id="blending-cert-tbody"></tbody>
+          </table>
+          <div id="blending-cert-error" class="sandbox-info-box" style="display: none; margin-top: 10px;"></div>
+        </div>
+
+        <!-- Песочница «что если» -->
+        <div class="blending-card">
+          <div class="blending-card-header">
+            <span class="blending-card-title">Песочница «что если»</span>
+            <button type="button" id="btn-blending-reset" class="btn-reset-rec" style="font-size: 13px; padding: 4px 10px;">Сбросить</button>
+          </div>
+          <p class="blending-sandbox-caption">Расчёт не влияет на реальные резервуары — это модель LP-оптимизации</p>
+
+          <div id="blending-sandbox-rows" class="blending-sandbox-rows"></div>
+
+          <div class="blending-sandbox-actions">
+            <button type="button" id="btn-blending-preview" class="btn-manual-preview">Пересчитать</button>
+          </div>
+
+          <!-- Нейтральная подсказка про инфизибл-комбинацию (НЕ красная тревога) -->
+          <div id="blending-preview-info" class="sandbox-info-box" style="display: none; margin-top: 10px;"></div>
+
+          <div id="blending-preview-result" class="blending-preview-result" style="display: none;">
+            <div class="blending-card-header">
+              <span class="blending-card-title">Сертификат прогноза</span>
+              <span id="blending-preview-status" class="cv-chip nodata">—</span>
+            </div>
+            <table class="blending-cert-table">
+              <thead>
+                <tr><th>Показатель</th><th>План</th><th>Лимит</th></tr>
+              </thead>
+              <tbody id="blending-preview-cert-tbody"></tbody>
+            </table>
+            <div class="effect-grid" id="blending-effect-grid" style="margin-top: 12px;">
+              <div class="effect-tile">
+                <span style="font-size: 13px; color: var(--ink-3);">Себестоимость смеси (план)</span>
+                <span id="blending-eff-cost" class="mono" style="font-size: 22px; font-weight: 600;">—</span>
+                <span style="font-size: 12px; color: var(--ink-2);">₽/т</span>
+              </div>
+              <div class="effect-tile">
+                <span style="font-size: 13px; color: var(--ink-3);">Δ к текущему рецепту</span>
+                <span id="blending-eff-delta" class="mono" style="font-size: 22px; font-weight: 600;">—</span>
+                <span style="font-size: 12px; color: var(--ink-2);">₽/т</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- TAB 6: КОНСТАНТЫ СИСТЕМЫ -->
+    <section class="tab-panel" data-tab-panel="constants" hidden>
+      <div class="tab-header-box">
+        <div class="tab-header-title-row">
+          <h2 class="tab-title">Инженерные константы и технологические ограничения</h2>
+          <span class="tab-sub-info">Единый технологический реестр T0–T3, нормативы ГОСТ 32511-2013, пороги LIMS и политики безопасности МАС</span>
+        </div>
+      </div>
+
+      <!-- Ф3 (03_STREAMLIT_MIGRATION_PLAN.md §6): цены рынка/тарифов live-сессии — единственный
+           редактируемый блок вкладки «Константы». Визуально обособлен от read-only реестра ниже
+           (класс .economics-card, янтарная рамка/фон — тот же язык, что у «изменено оператором»
+           в других вкладках), чтобы не путать с неизменяемым реестром ГОСТ/ПАЗ/T0-T3. -->
+      <div class="economics-card" id="economics-card">
+        <div class="economics-card-header">
+          <div>
+            <h3 class="economics-card-title">Цены и тарифы (редактируемо)</h3>
+            <span class="economics-card-sub">5 рыночных цен из <code>EconomicsParams</code> — те же поля, что были в боковой панели Streamlit. Влияют на расчёт маржи и рекомендации МАС.</span>
+          </div>
+          <span id="economics-override-badge" class="economics-override-badge" style="display: none;">изменено оператором</span>
+        </div>
+
+        <div class="economics-fields-grid" id="economics-fields-grid">
+          <!-- Заполняется динамически: 5 value-stepper (price_godt, price_straight_run, price_crude_oil, price_kerosene, price_gasoil) -->
+        </div>
+
+        <div class="economics-card-footer">
+          <button type="button" id="btn-economics-apply" class="btn-economics-apply">Применить</button>
+          <span id="economics-hint" class="economics-hint" style="display: none;">Изменение вступит в силу со следующего такта.</span>
+          <span id="economics-error" class="economics-error" style="display: none;"></span>
+        </div>
+      </div>
+
+      <div class="constants-card">
+        <div class="constants-toolbar">
+          <input type="text" id="constants-search" class="constants-search-input" placeholder="Поиск по названию, тегу или источнику...">
+          <div class="constants-category-filters" id="constants-cat-filters">
+            <button type="button" class="constants-cat-btn active" data-cat="all">Все</button>
+            <button type="button" class="constants-cat-btn" data-cat="T0">T0: Границы MV</button>
+            <button type="button" class="constants-cat-btn" data-cat="T1">T1: ПАЗ/ESD</button>
+            <button type="button" class="constants-cat-btn" data-cat="T2">T2: ГОСТ Евро-5</button>
+            <button type="button" class="constants-cat-btn" data-cat="T3">T3: Сырье и баланс</button>
+            <button type="button" class="constants-cat-btn" data-cat="POLICY">Политики и LIMS</button>
+          </div>
+        </div>
+
+        <div class="constants-table-wrap">
+          <table class="constants-table" id="constants-table">
+            <thead>
+              <tr>
+                <th style="width: 180px;">Ключ / Тег</th>
+                <th>Наименование параметра</th>
+                <th style="width: 120px; text-align: right;">Значение</th>
+                <th style="width: 90px;">Ед. изм.</th>
+                <th style="width: 120px;">Провенанс</th>
+                <th style="width: 220px;">Источник / Норматив</th>
+                <th>Описание / Назначение</th>
+              </tr>
+            </thead>
+            <tbody id="constants-tbody">
+              <!-- Заполняется динамически -->
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- TAB: СУПЕРВИЗОР (F4, 03_STREAMLIT_MIGRATION_PLAN.md §7) -->
+    <section class="tab-panel" data-tab-panel="supervisor" hidden>
+      <div class="tab-header-box">
+        <div class="tab-header-title-row">
+          <h2 class="tab-title">Панель LLM-супервизора</h2>
+          <button type="button" id="btn-refresh-supervisor" class="btn-refresh-sm">Обновить</button>
+        </div>
+        <span class="tab-sub-info">Диагностические находки и запросы на изменение технологической политики (HITL). Поле «Спросить систему» — на вкладке «Обзор», сменный рапорт — на вкладке «Журнал смены».</span>
+      </div>
+
+      <div class="supervisor-layout">
+        <div class="supervisor-card">
+          <div class="supervisor-card-header">
+            <span class="supervisor-card-title">Диагностические находки</span>
+          </div>
+          <div id="supervisor-findings-list" class="supervisor-findings-list">
+            <div class="supervisor-empty">Загрузка...</div>
+          </div>
+        </div>
+
+        <div class="supervisor-card">
+          <div class="supervisor-card-header">
+            <span class="supervisor-card-title">Запросы на изменение политики (HITL)</span>
+          </div>
+          <div id="supervisor-cr-list" class="supervisor-cr-list">
+            <div class="supervisor-empty">Загрузка...</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Toast Notifications Container -->
+    <div id="toast-container" class="toast-container" aria-live="polite"></div>
+
+    <!-- Modal Overlay for Ask -->
+    <div id="modal-overlay" class="modal-overlay" style="display: none;">
+      <div class="modal-header">
+        <span id="modal-title" style="font-size: 18px; font-weight: 700;">Ответ системы</span>
+        <button id="btn-modal-close" type="button" style="height: 36px; padding: 0 12px; background: #FFFFFF; border: 1px solid var(--line);">Закрыть</button>
+      </div>
+      <div id="modal-content" class="modal-content"></div>
+    </div>
+
+    <!-- Floating Host Panel (?demo=1): инъекция неисправностей КИПиА для демонстрации -->
+    <div id="demo-host-panel" class="demo-host-panel" style="display: none;">
+      <span style="font-weight: 700;">ДЕМО:</span>
+      <button type="button" id="btn-demo-fault-q21">Отказ ПАК серы</button>
+      <button type="button" id="btn-demo-clear-faults">Снять отказы</button>
+    </div>
+  </div>
+
+  <script src="vendor/echarts.min.js"></script>
+  <script type="module" src="app.js"></script>
+</body>
+</html>

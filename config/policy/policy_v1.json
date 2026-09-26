@@ -1,0 +1,31 @@
+{
+  "version": "1.0.0",
+  "alpha_quality": 0.0228,
+  "alpha_equipment": 0.00135,
+  "deadband_rub_h": 1000.0,
+  "min_move_norm": 0.05,
+  "cautious_step_scale": 0.5,
+  "max_rounds": 4,
+  "soft_budget_s": 2.0,
+  "hard_budget_s": 10.0,
+  "recovery_rho": 0.9,
+  "recovery_max_steps": 6,
+  "furnace_ensemble_size": 40,
+  "furnace_benefit_confidence": 0.8,
+  "dilution_policy": "GODT_ON_SPEC",
+  "catalyst_wear_rub_h_per_c": 450.0,
+  "move_cost_rub_h_per_unit_norm": 0.0,
+  "cfpp_margin_c": 1.0,
+  "heating_warning_zone_c": 380.0,
+  "pause_economics_on_uncontrollable_t1": true,
+  "buffer_bounds_t": [
+    -300.0,
+    300.0
+  ],
+  "h_plan_h": 8.0,
+  "thresholds": {
+    "cautious_calib_age_h": 8.0,
+    "corrective_only_calib_age_h": 16.0,
+    "refusal_lims_age_h_without_pak": 24.0
+  }
+}
